@@ -1,11 +1,8 @@
 <?php
 /**
- * TRT Haber Canlı Yayın (YouTube)
+ * TRT Haber Canlı Yayın (YouTube Embed)
  * Geliştirici: @zanetmez
  */
-
-// YouTube canlı yayın embed URL'si
-$youtube_url = "https://www.youtube.com/embed/live_stream?channel=UCYgM-zL0Rx-2c5T03ylq-gw";
 ?>
 <!DOCTYPE html>
 <html>
@@ -48,9 +45,9 @@ $youtube_url = "https://www.youtube.com/embed/live_stream?channel=UCYgM-zL0Rx-2c
 <div class="container">
     <div class="video-wrapper">
         <iframe 
-            src="<?php echo $youtube_url; ?>" 
+            src="https://www.youtube.com/embed/live_stream?channel=UCYgM-zL0Rx-2c5T03ylq-gw" 
             allowfullscreen 
-            allow="autoplay; encrypted-media"
+            allow="autoplay; encrypted-media; accelerometer; gyroscope"
             loading="lazy">
         </iframe>
     </div>
