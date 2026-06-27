@@ -1,10 +1,47 @@
 <?php
 /**
- * TRT Haber Canlı Yayın - Tüm Yöntemler
+ * TRT Haber Canlı Yayın (Proxy ile)
  * Geliştirici: @zanetmez
  */
 
 $m3u8_url = "https://tv-trthaber.medya.trt.com.tr/master_1440.m3u8";
+
+// M3U8'yi al
+$ch = curl_init();
+curl_setopt($ch, CURLOPT_URL, $m3u8_url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+curl_setopt($ch, CURLOPT_REFERER, 'https://www.trthaber.com/canli-yayin');
+$m3u8_content = curl_exec($ch);
+curl_close($ch);
+
+if (!$m3u8_content) {
+    die("M3U8 alınamadı.");
+}
+
+// Segmentleri proxy'ye çevir
+$base = "https://tv-trthaber.medya.trt.com.tr/";
+$lines = explode("\n", $m3u8_content);
+$new_lines = [];
+
+foreach ($lines as $line) {
+    $line = trim($line);
+    if (empty($line)) continue;
+    
+    if (strpos($line, '#') === 0) {
+        $new_lines[] = $line;
+    } elseif (strpos($line, '.ts') !== false) {
+        $new_lines[] = "proxy.php?url=" . urlencode($base . $line);
+    } else {
+        $new_lines[] = $line;
+    }
+}
+
+$new_m3u8 = implode("\n", $new_lines);
+
+// M3U8'yi dosyaya kaydet
+file_put_contents('trt.m3u8', $new_m3u8);
 ?>
 <!DOCTYPE html>
 <html>
@@ -28,12 +65,7 @@ $m3u8_url = "https://tv-trthaber.medya.trt.com.tr/master_1440.m3u8";
 <div class="container">
     <div class="video-wrapper">
         <div class="loading" id="loading">⏳ Yayın yükleniyor...</div>
-        
-        <!-- YÖNTEM 1: Video Etiketi -->
-        <video id="videoPlayer" controls autoplay playsinline>
-            <source src="<?php echo $m3u8_url; ?>" type="application/vnd.apple.mpegurl">
-        </video>
-        
+        <video id="videoPlayer" controls autoplay playsinline></video>
         <div class="info">
             <h2>📺 TRT Haber Canlı Yayın</h2>
             <p>Geliştirici: @zanetmez | Kesintisiz HD Yayın</p>
@@ -44,82 +76,29 @@ $m3u8_url = "https://tv-trthaber.medya.trt.com.tr/master_1440.m3u8";
 <script>
     const video = document.getElementById('videoPlayer');
     const loading = document.getElementById('loading');
-    const m3u8Url = '<?php echo $m3u8_url; ?>';
+    const m3u8Url = 'trt.m3u8';
 
-    // YÖNTEM 1: Video etiketi ile dene
-    video.addEventListener('loadedmetadata', function() {
-        loading.style.display = 'none';
-        video.play();
-    });
-
-    // YÖNTEM 2: HLS.js (Chrome/Firefox/Android)
-    function tryHls() {
-        if (Hls.isSupported()) {
-            const hls = new Hls({
-                enableWorker: true,
-                lowLatencyMode: true
-            });
-            hls.loadSource(m3u8Url);
-            hls.attachMedia(video);
-            
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                loading.style.display = 'none';
-                video.play();
-            });
-            
-            hls.on(Hls.Events.ERROR, function(event, data) {
-                if (data.fatal) {
-                    // YÖNTEM 3: Native HLS (Safari için)
-                    tryNativeHls();
-                }
-            });
-        } else {
-            tryNativeHls();
-        }
+    if (Hls.isSupported()) {
+        const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+        hls.loadSource(m3u8Url);
+        hls.attachMedia(video);
+        
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+            loading.style.display = 'none';
+            video.play();
+        });
+        
+        hls.on(Hls.Events.ERROR, function(event, data) {
+            if (data.fatal) {
+                loading.innerHTML = '❌ Yayın hatası, yeniden bağlanılıyor...';
+                setTimeout(() => window.location.reload(), 5000);
+            }
+        });
+    } else {
+        loading.innerHTML = '❌ Tarayıcınız M3U8 desteklemiyor.';
     }
-
-    // YÖNTEM 3: Native HLS (Safari)
-    function tryNativeHls() {
-        if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = m3u8Url;
-            video.addEventListener('loadedmetadata', function() {
-                loading.style.display = 'none';
-                video.play();
-            });
-        } else {
-            loading.innerHTML = '❌ Yayın başlatılamadı. Lütfen VLC veya MPV ile dene.';
-        }
-    }
-
-    // YÖNTEM 4: VLC Protokolü (Masaüstü)
-    function tryVlc() {
-        const vlcUrl = `vlc://${m3u8Url}`;
-        window.open(vlcUrl, '_blank');
-    }
-
-    // YÖNTEM 5: MPV Protokolü (Masaüstü)
-    function tryMpv() {
-        const mpvUrl = `mpv://${m3u8Url}`;
-        window.open(mpvUrl, '_blank');
-    }
-
-    // 5 saniye içinde yüklenmezse VLC öner
-    setTimeout(() => {
-        if (loading.style.display !== 'none') {
-            loading.innerHTML = `
-                ⚠️ Yayın yüklenemedi.<br>
-                <a href="${m3u8Url}" target="_blank">📺 M3U8 Linkini Aç</a><br>
-                <button onclick="tryVlc()">▶️ VLC ile Aç</button>
-                <button onclick="tryMpv()">▶️ MPV ile Aç</button>
-            `;
-        }
-    }, 10000);
-
-    // Başlat
-    tryHls();
 </script>
 
-<!-- HLS.js -->
 <script src="https://cdn.jsdelivr.net/npm/hls.js@0.14.17/dist/hls.min.js"></script>
 </body>
 </html>
