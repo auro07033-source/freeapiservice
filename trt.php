@@ -1,10 +1,10 @@
 <?php
-// trt.php - TRT Haber Canlı Yayın (Kalıcı Çözüm)
+// trt.php - TRT Haber Canlı Yayın (Kesintisiz)
 // Geliştirici: @zanetmez
 
 $m3u8_url = "https://tv-trthaber.medya.trt.com.tr/master_1440.m3u8";
 
-// 1. M3U8 listesini TRT'den al
+// M3U8'yi al
 $ch = curl_init();
 curl_setopt($ch, CURLOPT_URL, $m3u8_url);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -14,11 +14,9 @@ curl_setopt($ch, CURLOPT_REFERER, 'https://www.trthaber.com/canli-yayin');
 $m3u8_content = curl_exec($ch);
 curl_close($ch);
 
-if (!$m3u8_content) {
-    die("M3U8 alınamadı.");
-}
+if (!$m3u8_content) die("M3U8 alınamadı.");
 
-// 2. Segment URL'lerini proxy'ye yönlendir
+// Segmentleri proxy'ye yönlendir
 $base = "https://tv-trthaber.medya.trt.com.tr/";
 $lines = explode("\n", $m3u8_content);
 $new_lines = [];
@@ -26,7 +24,6 @@ $new_lines = [];
 foreach ($lines as $line) {
     $line = trim($line);
     if (empty($line)) continue;
-    
     if (strpos($line, '#') === 0) {
         $new_lines[] = $line;
     } elseif (strpos($line, '.ts') !== false) {
@@ -36,9 +33,10 @@ foreach ($lines as $line) {
     }
 }
 
+// #EXT-X-PLAYLIST-TYPE:EVENT'i kaldır (CANLI yap)
 $new_m3u8 = implode("\n", $new_lines);
+$new_m3u8 = str_replace('#EXT-X-PLAYLIST-TYPE:EVENT', '', $new_m3u8);
 
-// 3. Yeni M3U8'yi dosyaya kaydet (cache)
 file_put_contents('trt.m3u8', $new_m3u8);
 ?>
 <!DOCTYPE html>
@@ -75,13 +73,18 @@ file_put_contents('trt.m3u8', $new_m3u8);
 <script>
     const video = document.getElementById('videoPlayer');
     const loading = document.getElementById('loading');
-    const m3u8Url = 'trt.m3u8';
+    const m3u8Url = 'trt.m3u8?' + Date.now();
 
     if (Hls.isSupported()) {
         const hls = new Hls({
             enableWorker: true,
-            lowLatencyMode: true
+            lowLatencyMode: true,
+            liveSyncDurationCount: 3,
+            liveMaxLatencyDurationCount: 10,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60
         });
+        
         hls.loadSource(m3u8Url);
         hls.attachMedia(video);
         
@@ -90,12 +93,17 @@ file_put_contents('trt.m3u8', $new_m3u8);
             video.play();
         });
         
+        hls.on(Hls.Events.LEVEL_LOADED, function(event, data) {
+            // Canlı yayını takip et
+            if (data.details.live) {
+                hls.startLoad();
+            }
+        });
+        
         hls.on(Hls.Events.ERROR, function(event, data) {
             if (data.fatal) {
                 loading.innerHTML = '❌ Yayın hatası, yeniden bağlanılıyor...';
-                setTimeout(() => {
-                    window.location.reload();
-                }, 5000);
+                setTimeout(() => window.location.reload(), 3000);
             }
         });
     } else {
