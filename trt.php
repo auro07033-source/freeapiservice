@@ -1,43 +1,11 @@
 <?php
-// trt.php - TRT Haber Canlı Yayın (Kesintisiz)
-// Geliştirici: @zanetmez
+/**
+ * TRT Haber Canlı Yayın (iframe ile)
+ * Geliştirici: @zanetmez
+ */
 
-$m3u8_url = "https://tv-trthaber.medya.trt.com.tr/master_1440.m3u8";
-
-// M3U8'yi al
-$ch = curl_init();
-curl_setopt($ch, CURLOPT_URL, $m3u8_url);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-curl_setopt($ch, CURLOPT_REFERER, 'https://www.trthaber.com/canli-yayin');
-$m3u8_content = curl_exec($ch);
-curl_close($ch);
-
-if (!$m3u8_content) die("M3U8 alınamadı.");
-
-// Segmentleri proxy'ye yönlendir
-$base = "https://tv-trthaber.medya.trt.com.tr/";
-$lines = explode("\n", $m3u8_content);
-$new_lines = [];
-
-foreach ($lines as $line) {
-    $line = trim($line);
-    if (empty($line)) continue;
-    if (strpos($line, '#') === 0) {
-        $new_lines[] = $line;
-    } elseif (strpos($line, '.ts') !== false) {
-        $new_lines[] = "proxy.php?url=" . urlencode($base . $line);
-    } else {
-        $new_lines[] = $line;
-    }
-}
-
-// #EXT-X-PLAYLIST-TYPE:EVENT'i kaldır (CANLI yap)
-$new_m3u8 = implode("\n", $new_lines);
-$new_m3u8 = str_replace('#EXT-X-PLAYLIST-TYPE:EVENT', '', $new_m3u8);
-
-file_put_contents('trt.m3u8', $new_m3u8);
+// TRT Haber'in resmi canlı yayın sayfası
+$iframe_url = "https://www.trthaber.com/canli-yayin";
 ?>
 <!DOCTYPE html>
 <html>
@@ -48,67 +16,33 @@ file_put_contents('trt.m3u8', $new_m3u8);
     <style>
         * { margin:0; padding:0; box-sizing:border-box; }
         body { background: #0a0a0a; display: flex; justify-content: center; align-items: center; min-height: 100vh; font-family: 'Segoe UI', sans-serif; }
-        .container { width: 100%; max-width: 1000px; padding: 1rem; }
-        .video-wrapper { background: #000; border-radius: 1rem; overflow: hidden; position: relative; }
-        video { width: 100%; height: auto; display: block; background: #000; min-height: 400px; }
+        .container { width: 100%; max-width: 1200px; padding: 1rem; }
+        .video-wrapper { background: #000; border-radius: 1rem; overflow: hidden; position: relative; height: 0; padding-bottom: 56.25%; }
+        .video-wrapper iframe { 
+            position: absolute; 
+            top: 0; left: 0; 
+            width: 100%; height: 100%; 
+            border: none;
+            background: #000;
+        }
         .info { text-align: center; padding: 1rem; color: #fff; background: #1a1a1a; border-top: 1px solid #333; }
         .info h2 { color: #ff6b35; }
         .info p { color: #888; font-size: 0.8rem; }
-        .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-size: 1.2rem; background: rgba(0,0,0,0.7); padding: 1rem 2rem; border-radius: 0.5rem; z-index: 10; }
     </style>
 </head>
 <body>
 <div class="container">
     <div class="video-wrapper">
-        <div class="loading" id="loading">⏳ Yayın yükleniyor...</div>
-        <video id="videoPlayer" controls autoplay playsinline></video>
-        <div class="info">
-            <h2>📺 TRT Haber Canlı Yayın</h2>
-            <p>Geliştirici: @zanetmez | Kesintisiz HD Yayın</p>
-        </div>
+        <iframe src="<?php echo $iframe_url; ?>" 
+                allowfullscreen 
+                allow="autoplay; encrypted-media"
+                loading="lazy">
+        </iframe>
+    </div>
+    <div class="info">
+        <h2>📺 TRT Haber Canlı Yayın</h2>
+        <p>Geliştirici: @zanetmez | Kesintisiz HD Yayın</p>
     </div>
 </div>
-
-<script src="https://cdn.jsdelivr.net/npm/hls.js@0.14.17/dist/hls.min.js"></script>
-<script>
-    const video = document.getElementById('videoPlayer');
-    const loading = document.getElementById('loading');
-    const m3u8Url = 'trt.m3u8?' + Date.now();
-
-    if (Hls.isSupported()) {
-        const hls = new Hls({
-            enableWorker: true,
-            lowLatencyMode: true,
-            liveSyncDurationCount: 3,
-            liveMaxLatencyDurationCount: 10,
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60
-        });
-        
-        hls.loadSource(m3u8Url);
-        hls.attachMedia(video);
-        
-        hls.on(Hls.Events.MANIFEST_PARSED, function() {
-            loading.style.display = 'none';
-            video.play();
-        });
-        
-        hls.on(Hls.Events.LEVEL_LOADED, function(event, data) {
-            // Canlı yayını takip et
-            if (data.details.live) {
-                hls.startLoad();
-            }
-        });
-        
-        hls.on(Hls.Events.ERROR, function(event, data) {
-            if (data.fatal) {
-                loading.innerHTML = '❌ Yayın hatası, yeniden bağlanılıyor...';
-                setTimeout(() => window.location.reload(), 3000);
-            }
-        });
-    } else {
-        loading.innerHTML = '❌ Tarayıcınız M3U8 desteklemiyor.';
-    }
-</script>
 </body>
 </html>
