@@ -1,15 +1,15 @@
 <?php
-/**
- * TRT Segment Proxy
- * Geliştirici: @zanetmez
- */
+// proxy.php - Segment Proxy
+// Geliştirici: @zanetmez
 
 $url = isset($_GET['url']) ? $_GET['url'] : '';
 
 if (empty($url)) {
+    http_response_code(400);
     die('URL gerekli');
 }
 
+// TRT'den segmenti al
 $ch = curl_init();
 curl_setopt($ch, CURLOPT_URL, $url);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -25,6 +25,7 @@ curl_close($ch);
 if ($response) {
     header('Content-Type: ' . $contentType);
     header('Access-Control-Allow-Origin: *');
+    header('Cache-Control: public, max-age=3600');
     echo $response;
 } else {
     http_response_code(404);

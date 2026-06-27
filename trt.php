@@ -1,12 +1,10 @@
 <?php
-/**
- * TRT Haber Canlı Yayın (Proxy ile)
- * Geliştirici: @zanetmez
- */
+// trt.php - TRT Haber Canlı Yayın (Kalıcı Çözüm)
+// Geliştirici: @zanetmez
 
 $m3u8_url = "https://tv-trthaber.medya.trt.com.tr/master_1440.m3u8";
 
-// M3U8'yi al
+// 1. M3U8 listesini TRT'den al
 $ch = curl_init();
 curl_setopt($ch, CURLOPT_URL, $m3u8_url);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -20,7 +18,7 @@ if (!$m3u8_content) {
     die("M3U8 alınamadı.");
 }
 
-// Segmentleri proxy'ye çevir
+// 2. Segment URL'lerini proxy'ye yönlendir
 $base = "https://tv-trthaber.medya.trt.com.tr/";
 $lines = explode("\n", $m3u8_content);
 $new_lines = [];
@@ -40,7 +38,7 @@ foreach ($lines as $line) {
 
 $new_m3u8 = implode("\n", $new_lines);
 
-// M3U8'yi dosyaya kaydet
+// 3. Yeni M3U8'yi dosyaya kaydet (cache)
 file_put_contents('trt.m3u8', $new_m3u8);
 ?>
 <!DOCTYPE html>
@@ -73,13 +71,17 @@ file_put_contents('trt.m3u8', $new_m3u8);
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/hls.js@0.14.17/dist/hls.min.js"></script>
 <script>
     const video = document.getElementById('videoPlayer');
     const loading = document.getElementById('loading');
     const m3u8Url = 'trt.m3u8';
 
     if (Hls.isSupported()) {
-        const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+        const hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: true
+        });
         hls.loadSource(m3u8Url);
         hls.attachMedia(video);
         
@@ -91,14 +93,14 @@ file_put_contents('trt.m3u8', $new_m3u8);
         hls.on(Hls.Events.ERROR, function(event, data) {
             if (data.fatal) {
                 loading.innerHTML = '❌ Yayın hatası, yeniden bağlanılıyor...';
-                setTimeout(() => window.location.reload(), 5000);
+                setTimeout(() => {
+                    window.location.reload();
+                }, 5000);
             }
         });
     } else {
         loading.innerHTML = '❌ Tarayıcınız M3U8 desteklemiyor.';
     }
 </script>
-
-<script src="https://cdn.jsdelivr.net/npm/hls.js@0.14.17/dist/hls.min.js"></script>
 </body>
 </html>
