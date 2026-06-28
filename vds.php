@@ -184,6 +184,9 @@ if (!isset($users[$userId])) {
     saveUsers($users);
 }
 
+// ==================== ADMIN KONTROLÜ ====================
+$isAdmin = ($userId == $ADMIN_ID);
+
 // ==================== KOMUTLAR ====================
 
 // /start
@@ -196,15 +199,173 @@ if ($text === '/start') {
     exit;
 }
 
+// /admin - Admin paneli
+if ($text === '/admin' && $isAdmin) {
+    $bots = getBots();
+    $bekleyen = array_filter($bots, fn($b) => !$b['approved']);
+    $aktif = array_filter($bots, fn($b) => $b['approved']);
+    
+    $msg = "👑 **Admin Paneli**\n━━━━━━━━━━━━━━━━━━\n\n"
+          . "📥 **Bekleyen Botlar:** " . count($bekleyen) . "\n"
+          . "🟢 **Aktif Botlar:** " . count($aktif) . "\n"
+          . "📁 **Toplam Bot:** " . count($bots) . "\n\n"
+          . "📌 **Komutlar:**\n"
+          . "/admin_bekleyen → Bekleyen botları gör\n"
+          . "/admin_aktif → Aktif botları gör\n"
+          . "/admin_tum → Tüm botları gör\n"
+          . "/admin_durdur <id> → Botu durdur\n"
+          . "/admin_baslat <id> → Botu başlat\n"
+          . "/admin_sil <id> → Botu sil\n\n"
+          . "👤 @zanetmez";
+    
+    tgApi("sendMessage", [
+        'chat_id' => $chatId,
+        'text' => $msg,
+        'parse_mode' => 'Markdown'
+    ]);
+    exit;
+}
+
+// /admin_bekleyen
+if ($text === '/admin_bekleyen' && $isAdmin) {
+    $bots = getBots();
+    $bekleyen = array_filter($bots, fn($b) => !$b['approved']);
+    
+    if (empty($bekleyen)) {
+        tgApi("sendMessage", [
+            'chat_id' => $chatId,
+            'text' => "📭 **Bekleyen bot yok!**",
+            'parse_mode' => 'Markdown'
+        ]);
+        exit;
+    }
+    
+    $msg = "📥 **Bekleyen Botlar**\n━━━━━━━━━━━━━━━━━━\n";
+    foreach ($bekleyen as $id => $b) {
+        $msg .= "\n🔹 `$id`\n   👤 @" . ($b['username'] ?? 'bilinmiyor') . "\n   📅 {$b['date']}\n   📁 `{$b['file']}`\n";
+    }
+    
+    tgApi("sendMessage", [
+        'chat_id' => $chatId,
+        'text' => $msg,
+        'parse_mode' => 'Markdown'
+    ]);
+    exit;
+}
+
+// /admin_aktif
+if ($text === '/admin_aktif' && $isAdmin) {
+    $bots = getBots();
+    $aktif = array_filter($bots, fn($b) => $b['approved']);
+    
+    if (empty($aktif)) {
+        tgApi("sendMessage", [
+            'chat_id' => $chatId,
+            'text' => "📭 **Aktif bot yok!**",
+            'parse_mode' => 'Markdown'
+        ]);
+        exit;
+    }
+    
+    $msg = "🟢 **Aktif Botlar**\n━━━━━━━━━━━━━━━━━━\n";
+    foreach ($aktif as $id => $b) {
+        $durum = isBotRunning($id) ? "🟢 Çalışıyor" : "🔴 Durdu";
+        $msg .= "\n🔹 `$id`\n   👤 @" . ($b['username'] ?? 'bilinmiyor') . "\n   📊 $durum\n   📁 `{$b['file']}`\n";
+    }
+    
+    tgApi("sendMessage", [
+        'chat_id' => $chatId,
+        'text' => $msg,
+        'parse_mode' => 'Markdown'
+    ]);
+    exit;
+}
+
+// /admin_tum
+if ($text === '/admin_tum' && $isAdmin) {
+    $bots = getBots();
+    
+    if (empty($bots)) {
+        tgApi("sendMessage", [
+            'chat_id' => $chatId,
+            'text' => "📭 **Hiç bot yok!**",
+            'parse_mode' => 'Markdown'
+        ]);
+        exit;
+    }
+    
+    $msg = "📁 **Tüm Botlar**\n━━━━━━━━━━━━━━━━━━\n";
+    foreach ($bots as $id => $b) {
+        $status = $b['approved'] ? "✅ Onaylı" : "⏳ Beklemede";
+        $durum = $b['approved'] ? (isBotRunning($id) ? "🟢" : "🔴") : "⚪";
+        $msg .= "\n$durum `$id`\n   👤 @" . ($b['username'] ?? 'bilinmiyor') . "\n   📊 $status\n";
+    }
+    
+    tgApi("sendMessage", [
+        'chat_id' => $chatId,
+        'text' => $msg,
+        'parse_mode' => 'Markdown'
+    ]);
+    exit;
+}
+
+// /admin_durdur <id>
+if (strpos($text, '/admin_durdur ') === 0 && $isAdmin) {
+    $botId = trim(str_replace('/admin_durdur ', '', $text));
+    stopBot($botId);
+    tgApi("sendMessage", [
+        'chat_id' => $chatId,
+        'text' => "⏹️ **Bot Durduruldu!**\n📌 Bot ID: `$botId`",
+        'parse_mode' => 'Markdown'
+    ]);
+    exit;
+}
+
+// /admin_baslat <id>
+if (strpos($text, '/admin_baslat ') === 0 && $isAdmin) {
+    $botId = trim(str_replace('/admin_baslat ', '', $text));
+    startBot($botId);
+    tgApi("sendMessage", [
+        'chat_id' => $chatId,
+        'text' => "🚀 **Bot Başlatıldı!**\n📌 Bot ID: `$botId`",
+        'parse_mode' => 'Markdown'
+    ]);
+    exit;
+}
+
+// /admin_sil <id>
+if (strpos($text, '/admin_sil ') === 0 && $isAdmin) {
+    $botId = trim(str_replace('/admin_sil ', '', $text));
+    $bots = getBots();
+    
+    if (isset($bots[$botId])) {
+        stopBot($botId);
+        unset($bots[$botId]);
+        saveBots($bots);
+        $botFile = $BOT_DIR . $botId . ".py";
+        if (file_exists($botFile)) unlink($botFile);
+        $logFile = $LOG_DIR . $botId . ".txt";
+        if (file_exists($logFile)) unlink($logFile);
+        
+        tgApi("sendMessage", [
+            'chat_id' => $chatId,
+            'text' => "🗑️ **Bot Silindi!**\n📌 Bot ID: `$botId`",
+            'parse_mode' => 'Markdown'
+        ]);
+    } else {
+        tgApi("sendMessage", [
+            'chat_id' => $chatId,
+            'text' => "❌ **Bot bulunamadı!**",
+            'parse_mode' => 'Markdown'
+        ]);
+    }
+    exit;
+}
+
 // /botlar
 if ($text === '/botlar') {
     $bots = getBots();
-    $userBots = [];
-    foreach ($bots as $id => $b) {
-        if ($b['user_id'] == $userId) {
-            $userBots[$id] = $b;
-        }
-    }
+    $userBots = array_filter($bots, fn($b) => $b['user_id'] == $userId);
     
     if (empty($userBots)) {
         tgApi("sendMessage", [
@@ -313,6 +474,9 @@ if ($text === '/sil') {
             saveBots($bots);
             $botFile = $BOT_DIR . $id . ".py";
             if (file_exists($botFile)) unlink($botFile);
+            $logFile = $LOG_DIR . $id . ".txt";
+            if (file_exists($logFile)) unlink($logFile);
+            
             tgApi("sendMessage", [
                 'chat_id' => $chatId,
                 'text' => "🗑️ **Bot Silindi!**\n📌 Bot ID: `$id`",
@@ -330,8 +494,8 @@ if ($text === '/sil') {
 }
 
 // Admin onay (mesaj ile)
-if ($userId == $ADMIN_ID && strpos($text, '/approve_') === 0) {
-    $botId = str_replace('/approve_', '', $text);
+if ($isAdmin && strpos($text, '/approve') === 0) {
+    $botId = str_replace('/approve', '', $text);
     $bots = getBots();
     
     if (isset($bots[$botId])) {
@@ -343,15 +507,15 @@ if ($userId == $ADMIN_ID && strpos($text, '/approve_') === 0) {
         
         tgApi("sendMessage", [
             'chat_id' => $chatId,
-            'text' => "✅ **Bot Onaylandı!**\n📌 Bot ID: `$botId`",
+            'text' => "✅ **Bot Onaylandı!**\n📌 Bot ID: `$botId`\n🚀 Bot başlatıldı!",
             'parse_mode' => 'Markdown'
         ]);
     }
     exit;
 }
 
-if ($userId == $ADMIN_ID && strpos($text, '/reject_') === 0) {
-    $botId = str_replace('/reject_', '', $text);
+if ($isAdmin && strpos($text, '/reject') === 0) {
+    $botId = str_replace('/reject', '', $text);
     $bots = getBots();
     
     if (isset($bots[$botId])) {
@@ -359,6 +523,8 @@ if ($userId == $ADMIN_ID && strpos($text, '/reject_') === 0) {
         saveBots($bots);
         $botFile = $BOT_DIR . $botId . ".py";
         if (file_exists($botFile)) unlink($botFile);
+        $logFile = $LOG_DIR . $botId . ".txt";
+        if (file_exists($logFile)) unlink($logFile);
         
         tgApi("sendMessage", [
             'chat_id' => $chatId,
@@ -413,7 +579,7 @@ if (isset($message['document'])) {
     // Admin bildir
     tgApi("sendMessage", [
         'chat_id' => $ADMIN_ID,
-        'text' => "📥 **Yeni Bot Yüklendi!**\n👤 @$username\n📁 `$fileName`\n🆔 `$botId`\n\n/approve_$botId\n/reject_$botId",
+        'text' => "📥 **Yeni Bot Yüklendi!**\n👤 @$username\n📁 `$fileName`\n🆔 `$botId`\n\n/approve$botId\n/reject$botId",
         'parse_mode' => 'Markdown'
     ]);
     
