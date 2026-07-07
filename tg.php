@@ -1,6 +1,7 @@
 <?php
 /**
- * Telegram Veri API - Tüm Kayıtlar + ID Sorgu + Arayüz
+ * Telegram Veri API - Bellek Dostu (Stream ile okuma)
+ * Veriyi RAM'e yüklemez, satır satır okur.
  */
 
 ini_set('memory_limit', '512M');
@@ -9,66 +10,95 @@ ini_set('max_execution_time', 300);
 define('DATA_FILE_1', 'data.txt');
 define('DATA_FILE_2', 'data2.txt');
 
-// === VERİ OKUMA (Tümünü döndürür) ===
-function loadAllData() {
-    $data = [];
-    $seen = [];
+// === ID ile sorgula (Stream) ===
+function getUserByIdStream($id) {
+    $id = trim($id);
+    if ($id === '') return null;
     
-    // data.txt oku
+    // data.txt'de ara
     if (file_exists(DATA_FILE_1)) {
-        $lines = file(DATA_FILE_1, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        if (!empty($lines)) {
-            for ($i = 1; $i < count($lines); $i++) {
-                $parts = array_map('trim', explode(',', $lines[$i]));
-                while (count($parts) < 4) $parts[] = '';
-                $row = [
+        $handle = fopen(DATA_FILE_1, 'r');
+        $isFirst = true;
+        while (($line = fgets($handle)) !== false) {
+            if ($isFirst) { $isFirst = false; continue; }
+            $parts = array_map('trim', explode(',', $line));
+            if (($parts[0] ?? '') === $id) {
+                fclose($handle);
+                return [
                     'id' => $parts[0] ?? '',
                     'phone' => $parts[3] ?? '',
                     'username' => $parts[2] ?? '',
                     'first_name' => $parts[1] ?? '',
                     'last_name' => ''
                 ];
-                if (!empty($row['id']) && !isset($seen[$row['id']])) {
-                    $data[] = $row;
-                    $seen[$row['id']] = true;
-                }
             }
         }
+        fclose($handle);
     }
     
-    // data2.txt oku
+    // data2.txt'de ara
     if (file_exists(DATA_FILE_2)) {
-        $lines = file(DATA_FILE_2, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        if (!empty($lines)) {
-            for ($i = 1; $i < count($lines); $i++) {
-                $parts = array_map('trim', explode('|', $lines[$i]));
-                while (count($parts) < 5) $parts[] = '';
-                $row = [
+        $handle = fopen(DATA_FILE_2, 'r');
+        $isFirst = true;
+        while (($line = fgets($handle)) !== false) {
+            if ($isFirst) { $isFirst = false; continue; }
+            $parts = array_map('trim', explode('|', $line));
+            if (($parts[0] ?? '') === $id) {
+                fclose($handle);
+                return [
                     'id' => $parts[0] ?? '',
                     'phone' => $parts[1] ?? '',
                     'username' => $parts[2] ?? '',
                     'first_name' => $parts[3] ?? '',
                     'last_name' => $parts[4] ?? ''
                 ];
-                if (!empty($row['id']) && !isset($seen[$row['id']])) {
-                    $data[] = $row;
-                    $seen[$row['id']] = true;
-                }
             }
         }
+        fclose($handle);
     }
     
-    return $data;
+    return null;
 }
 
-// === ID ile sorgula ===
-function getUserById($id, $data) {
-    foreach ($data as $user) {
-        if ($user['id'] === $id) {
-            return $user;
+// === Stats (Stream ile say) ===
+function getStatsStream() {
+    $total = 0;
+    $withPhone = 0;
+    $withUsername = 0;
+    
+    // data.txt
+    if (file_exists(DATA_FILE_1)) {
+        $handle = fopen(DATA_FILE_1, 'r');
+        $isFirst = true;
+        while (($line = fgets($handle)) !== false) {
+            if ($isFirst) { $isFirst = false; continue; }
+            $parts = array_map('trim', explode(',', $line));
+            if (!empty($parts[0])) {
+                $total++;
+                if (!empty($parts[3])) $withPhone++;
+                if (!empty($parts[2])) $withUsername++;
+            }
         }
+        fclose($handle);
     }
-    return null;
+    
+    // data2.txt
+    if (file_exists(DATA_FILE_2)) {
+        $handle = fopen(DATA_FILE_2, 'r');
+        $isFirst = true;
+        while (($line = fgets($handle)) !== false) {
+            if ($isFirst) { $isFirst = false; continue; }
+            $parts = array_map('trim', explode('|', $line));
+            if (!empty($parts[0])) {
+                $total++;
+                if (!empty($parts[1])) $withPhone++;
+                if (!empty($parts[2])) $withUsername++;
+            }
+        }
+        fclose($handle);
+    }
+    
+    return ['total' => $total, 'with_phone' => $withPhone, 'with_username' => $withUsername];
 }
 
 // === JSON Yanıt ===
@@ -87,45 +117,23 @@ $path = trim($path, '/');
 
 // ID sorgusu (GET ile)
 if (isset($_GET['id']) && !empty($_GET['id'])) {
-    $allData = loadAllData();
-    $user = getUserById(trim($_GET['id']), $allData);
+    $user = getUserByIdStream(trim($_GET['id']));
     if ($user) {
         jsonResponse(['success' => true, 'data' => $user]);
     } else {
         jsonResponse(['success' => false, 'message' => 'ID bulunamadı'], 404);
     }
-}
-
-// === API ROUTES ===
-$allData = loadAllData();
-
-// /all
-if ($path === 'all') {
-    jsonResponse(['success' => true, 'total' => count($allData), 'data' => $allData]);
 }
 
 // /stats
 if ($path === 'stats') {
-    $total = count($allData);
-    $withPhone = 0;
-    $withUsername = 0;
-    foreach ($allData as $user) {
-        if (!empty($user['phone'])) $withPhone++;
-        if (!empty($user['username'])) $withUsername++;
-    }
-    jsonResponse([
-        'success' => true,
-        'stats' => [
-            'total' => $total,
-            'with_phone' => $withPhone,
-            'with_username' => $withUsername
-        ]
-    ]);
+    $stats = getStatsStream();
+    jsonResponse(['success' => true, 'stats' => $stats]);
 }
 
 // /user/{id}
 if (preg_match('/^user\/(.+)$/', $path, $matches)) {
-    $user = getUserById($matches[1], $allData);
+    $user = getUserByIdStream($matches[1]);
     if ($user) {
         jsonResponse(['success' => true, 'data' => $user]);
     } else {
@@ -133,7 +141,61 @@ if (preg_match('/^user\/(.+)$/', $path, $matches)) {
     }
 }
 
+// /all - LIMIT 5000 (RAM koruması)
+if ($path === 'all') {
+    $limit = isset($_GET['limit']) ? intval($_GET['limit']) : 5000;
+    if ($limit > 10000) $limit = 10000;
+    
+    $results = [];
+    $count = 0;
+    
+    // data.txt
+    if (file_exists(DATA_FILE_1)) {
+        $handle = fopen(DATA_FILE_1, 'r');
+        $isFirst = true;
+        while (($line = fgets($handle)) !== false && $count < $limit) {
+            if ($isFirst) { $isFirst = false; continue; }
+            $parts = array_map('trim', explode(',', $line));
+            if (!empty($parts[0])) {
+                $results[] = [
+                    'id' => $parts[0] ?? '',
+                    'phone' => $parts[3] ?? '',
+                    'username' => $parts[2] ?? '',
+                    'first_name' => $parts[1] ?? '',
+                    'last_name' => ''
+                ];
+                $count++;
+            }
+        }
+        fclose($handle);
+    }
+    
+    // data2.txt (limit dolmadıysa)
+    if ($count < $limit && file_exists(DATA_FILE_2)) {
+        $handle = fopen(DATA_FILE_2, 'r');
+        $isFirst = true;
+        while (($line = fgets($handle)) !== false && $count < $limit) {
+            if ($isFirst) { $isFirst = false; continue; }
+            $parts = array_map('trim', explode('|', $line));
+            if (!empty($parts[0])) {
+                $results[] = [
+                    'id' => $parts[0] ?? '',
+                    'phone' => $parts[1] ?? '',
+                    'username' => $parts[2] ?? '',
+                    'first_name' => $parts[3] ?? '',
+                    'last_name' => $parts[4] ?? ''
+                ];
+                $count++;
+            }
+        }
+        fclose($handle);
+    }
+    
+    jsonResponse(['success' => true, 'total' => $count, 'data' => $results]);
+}
+
 // === ANA SAYFA (Arayüz) ===
+$stats = getStatsStream();
 ?>
 <!DOCTYPE html>
 <html>
@@ -147,7 +209,6 @@ if (preg_match('/^user\/(.+)$/', $path, $matches)) {
         .container { max-width: 900px; margin: 0 auto; }
         .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
         h1 { color: #58a6ff; border-bottom: 2px solid #30363d; padding-bottom: 12px; margin-top: 0; }
-        h3 { color: #f0f6fc; margin-top: 0; }
         .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 13px; margin: 2px; }
         .badge-green { background: #238636; color: #fff; }
         .badge-red { background: #da3633; color: #fff; }
@@ -173,18 +234,18 @@ if (preg_match('/^user\/(.+)$/', $path, $matches)) {
 <div class="container">
     <div class="card">
         <h1>📱 Telegram Veri API</h1>
-        <p><strong>Toplam kayıt:</strong> <?= count($allData) ?></p>
+        <p><strong>Toplam kayıt:</strong> <?= $stats['total'] ?></p>
         <div class="file-info">
-            📁 <span>data.txt</span> (TG_ID,FIRST_NAME,TG_USERNAME,PHONE): 
-            <?= file_exists(DATA_FILE_1) ? number_format(filesize(DATA_FILE_1)) . ' bytes' : 'bulunamadı' ?>
-            <br>
-            📁 <span>data2.txt</span> (id|phone|username|first_name|last_name): 
-            <?= file_exists(DATA_FILE_2) ? number_format(filesize(DATA_FILE_2)) . ' bytes' : 'bulunamadı' ?>
+            📁 <span>data.txt</span>: <?= file_exists(DATA_FILE_1) ? number_format(filesize(DATA_FILE_1)) . ' bytes' : 'bulunamadı' ?><br>
+            📁 <span>data2.txt</span>: <?= file_exists(DATA_FILE_2) ? number_format(filesize(DATA_FILE_2)) . ' bytes' : 'bulunamadı' ?>
         </div>
         <div style="margin-top:12px;">
-            <span class="badge badge-green">✅ Telefon var: <?= array_reduce($allData, fn($c,$u)=>$c+(!empty($u['phone'])?1:0), 0) ?></span>
-            <span class="badge badge-red">❌ Telefon yok: <?= array_reduce($allData, fn($c,$u)=>$c+(empty($u['phone'])?1:0), 0) ?></span>
-            <span class="badge badge-yellow">📌 Kullanıcı adı var: <?= array_reduce($allData, fn($c,$u)=>$c+(!empty($u['username'])?1:0), 0) ?></span>
+            <span class="badge badge-green">✅ Telefon var: <?= $stats['with_phone'] ?></span>
+            <span class="badge badge-red">❌ Telefon yok: <?= $stats['total'] - $stats['with_phone'] ?></span>
+            <span class="badge badge-yellow">📌 Kullanıcı adı var: <?= $stats['with_username'] ?></span>
+        </div>
+        <div style="margin-top:8px;font-size:13px;color:#8b949e;">
+            ⚡ Bellek dostu mod: Veri RAM'e yüklenmez, satır satır okunur.
         </div>
     </div>
 
@@ -198,7 +259,7 @@ if (preg_match('/^user\/(.+)$/', $path, $matches)) {
         </div>
 
         <?php if (isset($_GET['id']) && !empty($_GET['id'])): 
-            $user = getUserById(trim($_GET['id']), $allData);
+            $user = getUserByIdStream(trim($_GET['id']));
         ?>
         <div class="result-box">
             <h4>Sonuç:</h4>
@@ -222,7 +283,7 @@ if (preg_match('/^user\/(.+)$/', $path, $matches)) {
         <p>Base URL: <span class="url-example">https://freeapiservice-q08q.onrender.com/tg.php</span></p>
 
         <div class="endpoint"><strong>GET</strong> /tg.php?id={id} → ID ile sorgula</div>
-        <div class="endpoint"><strong>GET</strong> /tg.php/all → Tüm veri (JSON)</div>
+        <div class="endpoint"><strong>GET</strong> /tg.php/all?limit=100 → Tüm veri (JSON, limit varsayılan 5000)</div>
         <div class="endpoint"><strong>GET</strong> /tg.php/stats → İstatistikler (JSON)</div>
         <div class="endpoint"><strong>GET</strong> /tg.php/user/{id} → ID ile sorgula (JSON)</div>
 
@@ -230,21 +291,9 @@ if (preg_match('/^user\/(.+)$/', $path, $matches)) {
         <pre>
 https://freeapiservice-q08q.onrender.com/tg.php?id=1683933939
 https://freeapiservice-q08q.onrender.com/tg.php/user/1683933939
-https://freeapiservice-q08q.onrender.com/tg.php/all
+https://freeapiservice-q08q.onrender.com/tg.php/all?limit=100
 https://freeapiservice-q08q.onrender.com/tg.php/stats
         </pre>
-
-        <h4 style="margin-top:16px;margin-bottom:8px;">📤 Örnek Yanıt (JSON):</h4>
-        <pre>{
-  "success": true,
-  "data": {
-    "id": "1683933939",
-    "phone": "79529637711",
-    "username": "example_user",
-    "first_name": "John",
-    "last_name": "Doe"
-  }
-}</pre>
     </div>
 </div>
 </body>
