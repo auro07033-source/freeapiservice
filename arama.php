@@ -1,7 +1,7 @@
 <?php
 /**
- * Ritalin Tool Call Bomber - 4.2 HATASI ÇÖZÜLDÜ
- * Gerçek Android ID ve cihaz bilgileri ile
+ *  Tool Call Bomber - 4.2 HATASI ÇÖZÜLDÜ (GERÇEK ANDROID ID'LER)
+ * Python'dan alınan gerçek Android ID'ler ile
  */
 
 // ==================== KONFIGÜRASYON ====================
@@ -18,17 +18,20 @@ define('LOOP_INTERVAL', 20);
 define('BOT_TOKEN', '8894652888:AAEjzcwqynhFBwoHjwhuGX9vmQnTBGBs61g');
 define('WEBHOOK_URL', 'https://freeapiservice-q08q.onrender.com/arama.php');
 
-// ==================== GERÇEK ANDROID ID'LER (Python'da çalışanlar) ====================
+// ==================== GERÇEK ANDROID ID'LER (Python'dan alındı) ====================
 $VALID_ANDROID_IDS = [
-    '13e50e93a6399e67',
-    'adaf455b5e53cd24',
-    'a3f8c91d2b4e6f78',
-    '9c4d2e1a5b8f7g3h',
-    '7f3e2d1c9b4a5f6e',
-    'e8f7g6h5i4j3k2l1',
-    'b5c6d7e8f9g0h1i2',
-    'z9y8x7w6v5u4t3s2',
-    'q1w2e3r4t5y6u7i8',
+    '3792e0535afa493a',
+    '75f687c20e2e4e54',
+    '424a9a2b571f4661',
+    '77a272eac0e34373',
+    '87c0ff15411240d3',
+    'c688d4b947094ea9',
+    '9d09e60e80f14c7f',
+    '05af276c24ea452a',
+    'ea3be379af5a49d7',
+    'e4cc68125dd5437d',
+    '13e50e93a6399e67',  // Eski çalışan
+    'adaf455b5e53cd24',  // Eski çalışan
 ];
 
 // ==================== GERÇEK CİHAZ İSİMLERİ ====================
@@ -329,6 +332,8 @@ if (php_sapi_name() !== 'cli') {
         $responseData = [
             'success' => false,
             'phone' => $phone,
+            'android_id' => $androidId,
+            'device_name' => $deviceName,
             'steps' => []
         ];
         
