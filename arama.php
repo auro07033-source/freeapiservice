@@ -182,17 +182,17 @@ if (php_sapi_name() !== 'cli') {
         if ($text === '/start') {
             sendTelegramMessage($chatId, "📞 <b>Call Bomber</b>\n\n"
                 . "Komutlar:\n"
-                . "/call +905545715516 - Arama gönder\n"
+                . "/call +90547374737 - Arama gönder\n"
                 . "/stop - Durdur\n"
                 . "/status - Bot durumu");
             exit;
         }
         
-        // /call +905545715516
+        // /call +90
         if (strpos($text, '/call ') === 0) {
             $phone = trim(substr($text, 6));
             if (empty($phone)) {
-                sendTelegramMessage($chatId, "❌ Lütfen numara girin: /call +905545715516");
+                sendTelegramMessage($chatId, "❌ Lütfen numara girin: /call +90");
                 exit;
             }
             
