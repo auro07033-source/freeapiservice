@@ -235,9 +235,6 @@ $stats = getStatsStream();
     <div class="card">
         <h1>📱 Telegram Veri API</h1>
         <p><strong>Toplam kayıt:</strong> <?= $stats['total'] ?></p>
-        <div class="file-info">
-            📁 <span>data.txt</span>: <?= file_exists(DATA_FILE_1) ? number_format(filesize(DATA_FILE_1)) . ' bytes' : 'bulunamadı' ?><br>
-            📁 <span>data2.txt</span>: <?= file_exists(DATA_FILE_2) ? number_format(filesize(DATA_FILE_2)) . ' bytes' : 'bulunamadı' ?>
         </div>
         <div style="margin-top:12px;">
             <span class="badge badge-green">✅ Telefon var: <?= $stats['with_phone'] ?></span>
