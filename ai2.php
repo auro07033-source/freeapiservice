@@ -1,7 +1,6 @@
 <?php
 /**
- * ChatGPT4Online - PHP API (Nonce Güncellendi)
- * Python'daki çalışan değerler kullanılıyor
+ * ChatGPT4Online - PHP API (Oturum Başlatma + Sohbet)
  */
 
 header("Content-Type: application/json; charset=utf-8");
@@ -14,20 +13,44 @@ if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
 }
 
 class ChatGPT4Online {
-    private $base_url = "https://chatgpt4online.org/wp-json/mwai-ui/v1/chats/submit";
-    
-    // 🔥 Python'daki çalışan değerler
-    private $nonce = "2fee91c1db";
-    private $session_id;
-    private $chat_id;
+    private $base_url = "https://chatgpt4online.org/wp-json";
+    private $session_id = null;
+    private $nonce = null;
+    private $chat_id = null;
     private $context_id = 5410;
     private $bot_id = "chatbot-qm966k";
     private $messages = [];
     private $response_text = "";
-    private $usage = [];
     
     public function __construct() {
-        $this->session_id = substr(str_replace("-", "", uniqid()), 0, 13);
+        $this->startSession();
+    }
+    
+    private function startSession() {
+        $ch = curl_init($this->base_url . "/mwai/v1/start_session");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([]));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "Content-Type: application/json",
+            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Origin: https://chatgpt4online.org",
+            "Referer: https://chatgpt4online.org/"
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        
+        if ($httpCode == 200) {
+            $data = json_decode($response, true);
+            $this->session_id = $data["sessionId"] ?? null;
+            $this->nonce = $data["restNonce"] ?? null;
+            return true;
+        }
+        return false;
     }
     
     private function generateId() {
@@ -60,7 +83,7 @@ class ChatGPT4Online {
             "stream" => true
         ];
         
-        $ch = curl_init($this->base_url);
+        $ch = curl_init($this->base_url . "/mwai-ui/v1/chats/submit");
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
@@ -90,9 +113,6 @@ class ChatGPT4Online {
                 
                 if ($json && $json["type"] == "live") {
                     $this->response_text .= $json["data"];
-                } elseif ($json && $json["type"] == "end") {
-                    $endData = json_decode($json["data"], true);
-                    $this->usage = $endData["usage"] ?? [];
                 }
             }
             
@@ -107,8 +127,7 @@ class ChatGPT4Online {
             return [
                 "success" => false,
                 "error" => "HTTP " . $httpCode,
-                "response" => null,
-                "total_tokens" => 0
+                "response" => null
             ];
         }
         
@@ -124,9 +143,7 @@ class ChatGPT4Online {
         
         return [
             "success" => true,
-            "response" => $this->response_text,
-            "total_tokens" => $this->usage["total_tokens"] ?? 0,
-            "usage" => $this->usage
+            "response" => $this->response_text
         ];
     }
 }
@@ -134,16 +151,15 @@ class ChatGPT4Online {
 // ==================== ROUTER ====================
 
 $client = new ChatGPT4Online();
-$path = $_SERVER["PATH_INFO"] ?? "/";
 $method = $_SERVER["REQUEST_METHOD"];
+$path = $_SERVER["PATH_INFO"] ?? "/";
 
 // GET ?message=Merhaba
 if ($method === "GET" && ($path === "/" || $path === "")) {
     $message = $_GET["message"] ?? "";
-    
     if (empty($message)) {
         http_response_code(400);
-        echo json_encode(["success" => false, "error" => "message required. Example: ?message=Merhaba"]);
+        echo json_encode(["success" => false, "error" => "message required"]);
         exit;
     }
     
@@ -175,6 +191,5 @@ echo json_encode([
     "endpoints" => [
         "GET ?message=Merhaba" => "Sohbet et",
         "POST /" => "Sohbet et (JSON)"
-    ],
-    "example" => "https://freeapiservice-q08q.onrender.com/ai2.php?message=Merhaba"
+    ]
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
