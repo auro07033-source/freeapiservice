@@ -1,17 +1,12 @@
 <?php
 /**
- * ChatGPT4Online - PHP REST API (POST & GET Desteği)
- * 
- * GET /api/chat?message=Merhaba  - Sohbet et (GET ile)
- * POST /api/chat - Sohbet et (POST ile JSON)
- * POST /api/reset - Oturumu sıfırla
- * GET /api/status - Durum bilgisi
+ * ChatGPT4Online - PHP API (Nonce Güncellendi)
+ * Python'daki çalışan değerler kullanılıyor
  */
 
 header("Content-Type: application/json; charset=utf-8");
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
 if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
     http_response_code(200);
@@ -20,6 +15,8 @@ if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
 
 class ChatGPT4Online {
     private $base_url = "https://chatgpt4online.org/wp-json/mwai-ui/v1/chats/submit";
+    
+    // 🔥 Python'daki çalışan değerler
     private $nonce = "2fee91c1db";
     private $session_id;
     private $chat_id;
@@ -31,7 +28,6 @@ class ChatGPT4Online {
     
     public function __construct() {
         $this->session_id = substr(str_replace("-", "", uniqid()), 0, 13);
-        $this->chat_id = null;
     }
     
     private function generateId() {
@@ -133,24 +129,6 @@ class ChatGPT4Online {
             "usage" => $this->usage
         ];
     }
-    
-    public function reset() {
-        $this->messages = [];
-        $this->chat_id = null;
-        $this->response_text = "";
-        $this->usage = [];
-        $this->session_id = substr(str_replace("-", "", uniqid()), 0, 13);
-        return true;
-    }
-    
-    public function getStatus() {
-        return [
-            "session_id" => $this->session_id,
-            "chat_id" => $this->chat_id,
-            "message_count" => count($this->messages),
-            "nonce" => $this->nonce
-        ];
-    }
 }
 
 // ==================== ROUTER ====================
@@ -159,8 +137,23 @@ $client = new ChatGPT4Online();
 $path = $_SERVER["PATH_INFO"] ?? "/";
 $method = $_SERVER["REQUEST_METHOD"];
 
-// === POST /api/chat (JSON ile) ===
-if ($method === "POST" && ($path === "/chat" || $path === "/")) {
+// GET ?message=Merhaba
+if ($method === "GET" && ($path === "/" || $path === "")) {
+    $message = $_GET["message"] ?? "";
+    
+    if (empty($message)) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "error" => "message required. Example: ?message=Merhaba"]);
+        exit;
+    }
+    
+    $result = $client->chat($message);
+    echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// POST / (JSON)
+if ($method === "POST") {
     $input = json_decode(file_get_contents("php://input"), true);
     $message = $input["message"] ?? "";
     
@@ -175,58 +168,13 @@ if ($method === "POST" && ($path === "/chat" || $path === "/")) {
     exit;
 }
 
-// === GET /api/chat?message=Merhaba ===
-if ($method === "GET" && ($path === "/chat" || $path === "/")) {
-    $message = $_GET["message"] ?? "";
-    
-    if (empty($message)) {
-        http_response_code(400);
-        echo json_encode(["success" => false, "error" => "message parameter required. Example: ?message=Merhaba"]);
-        exit;
-    }
-    
-    $result = $client->chat($message);
-    echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-// === POST /api/reset ===
-if ($method === "POST" && $path === "/reset") {
-    $client->reset();
-    echo json_encode(["success" => true, "message" => "Session reset"]);
-    exit;
-}
-
-// === GET /api/status ===
-if ($method === "GET" && $path === "/status") {
-    echo json_encode($client->getStatus(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-// === GET / (Ana sayfa) ===
-if ($method === "GET" && ($path === "/" || $path === "")) {
-    echo json_encode([
-        "name" => "gpt online ✅",
-        "version" => "1.0",
-        "endpoints" => [
-            "GET /api/chat" => [
-                "description" => "Sohbet et (GET)",
-                "example" => "/api/chat?message=Merhaba"
-            ],
-            "POST /api/chat" => [
-                "description" => "Sohbet et (POST)",
-                "example" => '{"message":"Merhaba"}'
-            ],
-            "POST /api/reset" => "Oturumu sıfırla",
-            "GET /api/status" => "API durumu"
-        ],
-        "example_curl" => [
-            "GET" => 'curl "https://freeapiservice-q08q.onrender.com/ai2.php?message=Merhaba"'
-        ]
-    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-// === 404 ===
-http_response_code(404);
-echo json_encode(["error" => "Endpoint not found"]);
+// Varsayılan
+echo json_encode([
+    "name" => "gpt online ✅",
+    "status" => "ok",
+    "endpoints" => [
+        "GET ?message=Merhaba" => "Sohbet et",
+        "POST /" => "Sohbet et (JSON)"
+    ],
+    "example" => "https://freeapiservice-q08q.onrender.com/ai2.php?message=Merhaba"
+], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
