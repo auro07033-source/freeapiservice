@@ -1,20 +1,20 @@
 <?php
 /**
- * Telegram Bot Yönetim Paneli - PHP
- * @zanetmez
+ * Telegram Bot Yönetim Paneli - HERKESE AÇIK
+ * Webhook ve bot yönetimi
  */
 
 // ==================== KONFIGÜRASYON ====================
 define('BOT_TOKEN', '8909832773:AAFV19brKwLojmm8q0S--2aZ4kx1fIpPF08');
-define('ADMIN_IDS', ['7650776904']); // Admin chat ID'leri
+$db_file = 'telegram_bots.json';
+$log_file = 'telegram_logs.txt';
 
 // ==================== VERİTABANI ====================
-$db_file = 'telegram_bots.json';
-
 function loadBots() {
     global $db_file;
-    if (!file_exists($db_file)) return ['bots' => [], 'users' => []];
-    return json_decode(file_get_contents($db_file), true) ?: ['bots' => [], 'users' => []];
+    if (!file_exists($db_file)) return ['bots' => []];
+    $data = json_decode(file_get_contents($db_file), true);
+    return $data ?: ['bots' => []];
 }
 
 function saveBots($data) {
@@ -30,6 +30,7 @@ function tgRequest($method, $params = []) {
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($params));
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     $res = curl_exec($ch);
     curl_close($ch);
     return json_decode($res, true);
@@ -42,6 +43,7 @@ function sendMessage($chat_id, $text, $parse_mode = 'HTML') {
 function getBotInfo($token) {
     $ch = curl_init("https://api.telegram.org/bot{$token}/getMe");
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     $res = curl_exec($ch);
     curl_close($ch);
     return json_decode($res, true);
@@ -50,26 +52,82 @@ function getBotInfo($token) {
 function setWebhook($token, $url) {
     $ch = curl_init("https://api.telegram.org/bot{$token}/setWebhook?url=" . urlencode($url));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     $res = curl_exec($ch);
     curl_close($ch);
     return json_decode($res, true);
 }
 
-// ==================== WEB PANEL ROUTER ====================
+function deleteWebhook($token) {
+    $ch = curl_init("https://api.telegram.org/bot{$token}/deleteWebhook");
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    $res = curl_exec($ch);
+    curl_close($ch);
+    return json_decode($res, true);
+}
+
+// ==================== WEBHOOK HANDLER ====================
+// Bot mesajlarını alır ve işler - HERKES İÇİN AÇIK
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['webhook'])) {
+    $input = file_get_contents('php://input');
+    $update = json_decode($input, true);
+    
+    // Log
+    file_put_contents($log_file, "[" . date('Y-m-d H:i:s') . "] WEBHOOK: " . substr($input, 0, 500) . "\n", FILE_APPEND);
+    
+    if ($update && isset($update['message'])) {
+        $chat_id = $update['message']['chat']['id'];
+        $text = $update['message']['text'] ?? '';
+        $username = $update['message']['from']['username'] ?? 'bilinmeyen';
+        $first_name = $update['message']['from']['first_name'] ?? '';
+        
+        // Log
+        file_put_contents($log_file, "[" . date('Y-m-d H:i:s') . "] $username ($chat_id): $text\n", FILE_APPEND);
+        
+        // Basit komutlar
+        if ($text === '/start') {
+            sendMessage($chat_id, "👋 Hoş geldin $first_name!\n\n📌 <b>Komutlar:</b>\n/start - Başlat\n/help - Yardım\n/about - Hakkında\n/botlar - Bot listesi");
+        } elseif ($text === '/help') {
+            sendMessage($chat_id, "📖 <b>Yardım Menüsü</b>\n\n/start - Başlat\n/help - Yardım\n/about - Hakkında\n/botlar - Bot listesi");
+        } elseif ($text === '/about') {
+            sendMessage($chat_id, "🤖 Bu bot, Telegram Bot Yönetim Paneli tarafından yönetiliyor.\n\n💻 @zanetmez");
+        } elseif ($text === '/botlar') {
+            $bots = loadBots();
+            $msg = "📋 <b>Bot Listesi</b>\n\n";
+            if (empty($bots['bots'])) {
+                $msg .= "Henüz bot eklenmemiş.";
+            } else {
+                foreach ($bots['bots'] as $id => $bot) {
+                    $status = ($bot['active'] ?? false) ? '🟢' : '🔴';
+                    $msg .= "$status <b>" . htmlspecialchars($bot['name'] ?? 'İsimsiz') . "</b>\n";
+                    $msg .= "   @" . htmlspecialchars($bot['username'] ?? 'bilinmiyor') . "\n";
+                    $msg .= "   👤 " . ($bot['users'] ?? 0) . " kullanıcı\n\n";
+                }
+            }
+            sendMessage($chat_id, $msg);
+        } else {
+            sendMessage($chat_id, "❌ Bilinmeyen komut: $text\n\n/start yazın.");
+        }
+    }
+    
+    http_response_code(200);
+    echo 'OK';
+    exit;
+}
+
+// ==================== WEB PANEL ====================
 $action = $_GET['action'] ?? 'dashboard';
 $method = $_SERVER['REQUEST_METHOD'];
 
 ob_start();
 
-// Auth kontrolü
-function isAdmin() {
-    $user_id = $_GET['user_id'] ?? $_POST['user_id'] ?? null;
-    return $user_id && in_array($user_id, ADMIN_IDS);
-}
-
 // === DASHBOARD ===
 if ($action === 'dashboard' && $method === 'GET') {
     $bots = loadBots();
+    // Webhook kontrol
+    $webhook_info = tgRequest('getWebhookInfo');
+    $webhook_status = ($webhook_info['ok'] ?? false) ? $webhook_info['result']['url'] ?? 'Ayarlanmamış' : 'Hata';
     ?>
     <!DOCTYPE html>
     <html>
@@ -82,32 +140,22 @@ if ($action === 'dashboard' && $method === 'GET') {
             body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
             .container { max-width: 1200px; margin: 0 auto; }
             .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
-            h1 { color: #58a6ff; border-bottom: 2px solid #30363d; padding-bottom: 10px; margin-bottom: 20px; }
+            h1 { color: #58a6ff; border-bottom: 2px solid #30363d; padding-bottom: 10px; }
             .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
             .bot-card { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 16px; }
             .bot-card .name { font-size: 18px; font-weight: bold; color: #58a6ff; }
             .bot-card .username { color: #8b949e; font-size: 14px; }
-            .bot-card .status { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; margin-top: 8px; }
-            .status.active { background: #238636; color: #fff; }
-            .status.inactive { background: #da3633; color: #fff; }
-            .btn { display: inline-block; padding: 6px 14px; border-radius: 6px; text-decoration: none; font-size: 13px; margin: 4px 2px; }
-            .btn-primary { background: #238636; color: #fff; border: none; cursor: pointer; }
-            .btn-danger { background: #da3633; color: #fff; border: none; cursor: pointer; }
-            .btn-secondary { background: #30363d; color: #fff; border: none; cursor: pointer; }
+            .status { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; margin-top: 8px; }
+            .status.on { background: #238636; color: #fff; }
+            .status.off { background: #da3633; color: #fff; }
+            .btn { display: inline-block; padding: 6px 14px; border-radius: 6px; text-decoration: none; font-size: 13px; margin: 4px 2px; border: none; cursor: pointer; }
+            .btn-primary { background: #238636; color: #fff; }
+            .btn-danger { background: #da3633; color: #fff; }
+            .btn-secondary { background: #30363d; color: #fff; }
+            .btn-success { background: #1f6feb; color: #fff; }
             .form-group { margin: 12px 0; }
             .form-group label { display: block; margin-bottom: 4px; color: #8b949e; }
-            .form-group input, .form-group textarea { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #c9d1d9; }
-            .form-row { display: flex; gap: 10px; flex-wrap: wrap; }
-            .form-row .form-group { flex: 1; min-width: 200px; }
-            .mt-2 { margin-top: 12px; }
-            .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin: 2px; }
-            .badge-success { background: #238636; color: #fff; }
-            .badge-danger { background: #da3633; color: #fff; }
-            .badge-warning { background: #9e6a03; color: #fff; }
-            .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 999; justify-content: center; align-items: center; }
-            .modal-content { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; max-width: 500px; width: 90%; }
-            .modal.active { display: flex; }
-            .log-area { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 13px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
+            .form-group input, .form-group select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #c9d1d9; }
             .nav { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
             .nav a { color: #58a6ff; text-decoration: none; padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; }
             .nav a:hover { background: #30363d; }
@@ -115,7 +163,19 @@ if ($action === 'dashboard' && $method === 'GET') {
             table { width: 100%; border-collapse: collapse; font-size: 14px; }
             th { text-align: left; padding: 10px; background: #161b22; border-bottom: 2px solid #30363d; }
             td { padding: 10px; border-bottom: 1px solid #21262d; }
+            .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin: 2px; }
+            .badge-success { background: #238636; color: #fff; }
+            .badge-danger { background: #da3633; color: #fff; }
+            .badge-warning { background: #9e6a03; color: #fff; }
+            .log-area { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 13px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
+            .mt-2 { margin-top: 12px; }
             .text-center { text-align: center; }
+            .webhook-status { padding: 8px 16px; border-radius: 6px; }
+            .webhook-status.ok { background: #238636; color: #fff; }
+            .webhook-status.err { background: #da3633; color: #fff; }
+            .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 999; justify-content: center; align-items: center; }
+            .modal-content { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; max-width: 500px; width: 90%; }
+            .modal.active { display: flex; }
         </style>
     </head>
     <body>
@@ -129,7 +189,10 @@ if ($action === 'dashboard' && $method === 'GET') {
                 <a href="?action=logs">📋 Loglar</a>
                 <a href="?action=webhook">🔗 Webhook</a>
             </div>
-            <p><strong>Toplam Bot:</strong> <?= count($bots['bots'] ?? []) ?></p>
+            <div style="display:flex; gap:20px; flex-wrap:wrap;">
+                <p><strong>Toplam Bot:</strong> <?= count($bots['bots'] ?? []) ?></p>
+                <p><strong>Webhook:</strong> <span class="webhook-status <?= ($webhook_status !== 'Ayarlanmamış' && $webhook_status !== 'Hata') ? 'ok' : 'err' ?>"><?= htmlspecialchars($webhook_status) ?></span></p>
+            </div>
         </div>
 
         <div class="grid">
@@ -138,7 +201,7 @@ if ($action === 'dashboard' && $method === 'GET') {
                 <div class="name"><?= htmlspecialchars($bot['name'] ?? 'İsimsiz Bot') ?></div>
                 <div class="username">@<?= htmlspecialchars($bot['username'] ?? 'bilinmiyor') ?></div>
                 <div>
-                    <span class="status <?= ($bot['active'] ?? false) ? 'active' : 'inactive' ?>">
+                    <span class="status <?= ($bot['active'] ?? false) ? 'on' : 'off' ?>">
                         <?= ($bot['active'] ?? false) ? '🟢 Aktif' : '🔴 Pasif' ?>
                     </span>
                     <span class="badge badge-success"><?= $bot['users'] ?? 0 ?> kullanıcı</span>
@@ -186,6 +249,11 @@ if ($action === 'add') {
                     'commands' => []
                 ];
                 saveBots($bots);
+                
+                // Otomatik webhook ayarla
+                $webhook_url = "https://" . $_SERVER['HTTP_HOST'] . $_SERVER['SCRIPT_NAME'] . "?webhook=1";
+                setWebhook($token, $webhook_url);
+                
                 header('Location: ?action=dashboard');
                 exit;
             } else {
@@ -204,7 +272,7 @@ if ($action === 'add') {
             body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
             .container { max-width: 600px; margin: 0 auto; }
             .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; }
-            h1 { color: #58a6ff; margin-bottom: 20px; }
+            h1 { color: #58a6ff; }
             .form-group { margin: 16px 0; }
             .form-group label { display: block; margin-bottom: 4px; color: #8b949e; }
             .form-group input { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #c9d1d9; }
@@ -212,18 +280,14 @@ if ($action === 'add') {
             .btn-primary { background: #238636; color: #fff; }
             .btn-secondary { background: #30363d; color: #fff; }
             .error { color: #f85149; padding: 10px; background: #161b22; border: 1px solid #da3633; border-radius: 6px; margin-bottom: 16px; }
-            .nav { display: flex; gap: 10px; margin-bottom: 20px; }
-            .nav a { color: #58a6ff; text-decoration: none; padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; }
-            .nav a:hover { background: #30363d; }
+            .nav a { color: #58a6ff; text-decoration: none; }
         </style>
     </head>
     <body>
     <div class="container">
         <div class="card">
             <h1>➕ Yeni Bot Ekle</h1>
-            <div class="nav">
-                <a href="?action=dashboard">← Geri</a>
-            </div>
+            <p><a href="?action=dashboard">← Geri</a></p>
             <?php if (isset($error)): ?>
             <div class="error">❌ <?= htmlspecialchars($error) ?></div>
             <?php endif; ?>
@@ -289,7 +353,7 @@ if ($action === 'edit') {
             body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
             .container { max-width: 600px; margin: 0 auto; }
             .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; }
-            h1 { color: #58a6ff; margin-bottom: 20px; }
+            h1 { color: #58a6ff; }
             .form-group { margin: 16px 0; }
             .form-group label { display: block; margin-bottom: 4px; color: #8b949e; }
             .form-group input { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #c9d1d9; }
@@ -297,18 +361,14 @@ if ($action === 'edit') {
             .btn { padding: 10px 24px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; }
             .btn-primary { background: #238636; color: #fff; }
             .btn-secondary { background: #30363d; color: #fff; }
-            .nav { display: flex; gap: 10px; margin-bottom: 20px; }
-            .nav a { color: #58a6ff; text-decoration: none; padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; }
-            .nav a:hover { background: #30363d; }
+            .nav a { color: #58a6ff; text-decoration: none; }
         </style>
     </head>
     <body>
     <div class="container">
         <div class="card">
             <h1>✏️ Bot Düzenle</h1>
-            <div class="nav">
-                <a href="?action=dashboard">← Geri</a>
-            </div>
+            <p><a href="?action=dashboard">← Geri</a></p>
             <form method="POST">
                 <div class="form-group">
                     <label>Bot Adı</label>
@@ -319,10 +379,6 @@ if ($action === 'edit') {
                         <input type="checkbox" name="active" <?= ($bot['active'] ?? false) ? 'checked' : '' ?>>
                         Aktif
                     </label>
-                </div>
-                <div class="form-group">
-                    <label>Kullanıcı Sayısı</label>
-                    <input type="text" value="<?= $bot['users'] ?? 0 ?>" disabled>
                 </div>
                 <button type="submit" class="btn btn-primary">💾 Kaydet</button>
                 <a href="?action=dashboard" class="btn btn-secondary">İptal</a>
@@ -348,8 +404,8 @@ if ($action === 'commands') {
             * { box-sizing: border-box; margin: 0; padding: 0; }
             body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
             .container { max-width: 1000px; margin: 0 auto; }
-            .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
-            h1 { color: #58a6ff; border-bottom: 2px solid #30363d; padding-bottom: 10px; }
+            .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; }
+            h1 { color: #58a6ff; }
             table { width: 100%; border-collapse: collapse; font-size: 14px; }
             th { text-align: left; padding: 10px; background: #161b22; border-bottom: 2px solid #30363d; }
             td { padding: 10px; border-bottom: 1px solid #21262d; }
@@ -376,12 +432,7 @@ if ($action === 'commands') {
                 <a href="#" onclick="document.getElementById('addCmdModal').classList.add('active')">➕ Komut Ekle</a>
             </div>
             <table>
-                <tr>
-                    <th>Bot</th>
-                    <th>Komut</th>
-                    <th>Açıklama</th>
-                    <th>İşlem</th>
-                </tr>
+                <tr><th>Bot</th><th>Komut</th><th>Açıklama</th><th>İşlem</th></tr>
                 <?php foreach (($bots['bots'] ?? []) as $id => $bot): ?>
                     <?php foreach (($bot['commands'] ?? []) as $cmd => $desc): ?>
                     <tr>
@@ -397,8 +448,6 @@ if ($action === 'commands') {
             </table>
         </div>
     </div>
-
-    <!-- Add Command Modal -->
     <div class="modal" id="addCmdModal">
         <div class="modal-content">
             <h2>➕ Komut Ekle</h2>
@@ -468,13 +517,36 @@ if ($action === 'webhook') {
     $bots = loadBots();
     $result = null;
     
+    // Mevcut webhook durumu
+    $webhook_info = tgRequest('getWebhookInfo');
+    $current_webhook = $webhook_info['ok'] ?? false ? $webhook_info['result']['url'] ?? 'Ayarlanmamış' : 'Hata';
+    
     if ($method === 'POST') {
+        $action_type = $_POST['action_type'] ?? '';
         $bot_id = $_POST['bot_id'] ?? '';
         $webhook_url = trim($_POST['webhook_url'] ?? '');
         
-        if ($bot_id && isset($bots['bots'][$bot_id])) {
-            $token = $bots['bots'][$bot_id]['token'];
-            $result = setWebhook($token, $webhook_url);
+        if ($action_type === 'set') {
+            if ($bot_id && isset($bots['bots'][$bot_id])) {
+                $token = $bots['bots'][$bot_id]['token'];
+                if (empty($webhook_url)) {
+                    $webhook_url = "https://" . $_SERVER['HTTP_HOST'] . $_SERVER['SCRIPT_NAME'] . "?webhook=1";
+                }
+                $result = setWebhook($token, $webhook_url);
+            } else {
+                // Ana bot için
+                if (empty($webhook_url)) {
+                    $webhook_url = "https://" . $_SERVER['HTTP_HOST'] . $_SERVER['SCRIPT_NAME'] . "?webhook=1";
+                }
+                $result = setWebhook(BOT_TOKEN, $webhook_url);
+            }
+        } elseif ($action_type === 'delete') {
+            if ($bot_id && isset($bots['bots'][$bot_id])) {
+                $token = $bots['bots'][$bot_id]['token'];
+                $result = deleteWebhook($token);
+            } else {
+                $result = deleteWebhook(BOT_TOKEN);
+            }
         }
     }
     ?>
@@ -488,44 +560,56 @@ if ($action === 'webhook') {
             body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
             .container { max-width: 700px; margin: 0 auto; }
             .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
-            h1 { color: #58a6ff; margin-bottom: 20px; }
+            h1 { color: #58a6ff; }
             .form-group { margin: 16px 0; }
             .form-group label { display: block; margin-bottom: 4px; color: #8b949e; }
             .form-group input, .form-group select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #c9d1d9; }
             .btn { padding: 10px 24px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; }
             .btn-primary { background: #238636; color: #fff; }
+            .btn-danger { background: #da3633; color: #fff; }
             .btn-secondary { background: #30363d; color: #fff; }
-            .nav { display: flex; gap: 10px; margin-bottom: 20px; }
-            .nav a { color: #58a6ff; text-decoration: none; padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; }
-            .nav a:hover { background: #30363d; }
+            .nav a { color: #58a6ff; text-decoration: none; }
             .result { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 13px; overflow-x: auto; }
+            .webhook-status { padding: 4px 12px; border-radius: 12px; font-size: 13px; }
+            .webhook-status.on { background: #238636; color: #fff; }
+            .webhook-status.off { background: #da3633; color: #fff; }
         </style>
     </head>
     <body>
     <div class="container">
         <div class="card">
             <h1>🔗 Webhook Yönetimi</h1>
-            <div class="nav">
-                <a href="?action=dashboard">← Geri</a>
+            <p><a href="?action=dashboard">← Geri</a></p>
+            
+            <div style="margin:16px 0;padding:12px;background:#0d1117;border-radius:6px;border:1px solid #30363d;">
+                <strong>Mevcut Webhook:</strong> 
+                <span class="webhook-status <?= ($current_webhook !== 'Ayarlanmamış' && $current_webhook !== 'Hata') ? 'on' : 'off' ?>">
+                    <?= htmlspecialchars($current_webhook) ?>
+                </span>
             </div>
+            
             <form method="POST">
                 <div class="form-group">
-                    <label>Bot Seç</label>
-                    <select name="bot_id" required>
-                        <option value="">Seçiniz...</option>
+                    <label>Bot Seç (Boş bırak = Ana bot)</label>
+                    <select name="bot_id">
+                        <option value="">Ana Bot (<?= BOT_TOKEN ?>)</option>
                         <?php foreach (($bots['bots'] ?? []) as $id => $bot): ?>
                         <option value="<?= $id ?>"><?= htmlspecialchars($bot['name'] ?? 'İsimsiz') ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Webhook URL</label>
-                    <input type="url" name="webhook_url" placeholder="https://ornek.com/webhook" required>
+                    <label>Webhook URL (Boş bırak = Otomatik)</label>
+                    <input type="url" name="webhook_url" placeholder="https://ornek.com/webhook">
                 </div>
-                <button type="submit" class="btn btn-primary">🔗 Webhook Ayarla</button>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <button type="submit" name="action_type" value="set" class="btn btn-primary">🔗 Ayarla</button>
+                    <button type="submit" name="action_type" value="delete" class="btn btn-danger" onclick="return confirm('Webhook kaldırılsın mı?')">🗑️ Kaldır</button>
+                </div>
             </form>
+            
             <?php if ($result): ?>
-            <div class="card" style="margin-top:20px;">
+            <div style="margin-top:20px;padding:12px;background:#0d1117;border-radius:6px;border:1px solid #30363d;">
                 <h3>Sonuç:</h3>
                 <div class="result"><?= json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?></div>
             </div>
@@ -540,7 +624,6 @@ if ($action === 'webhook') {
 
 // === LOGS ===
 if ($action === 'logs') {
-    $log_file = 'telegram_logs.txt';
     $logs = file_exists($log_file) ? file_get_contents($log_file) : "Log bulunamadı.";
     ?>
     <!DOCTYPE html>
@@ -553,11 +636,9 @@ if ($action === 'logs') {
             body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
             .container { max-width: 1000px; margin: 0 auto; }
             .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; }
-            h1 { color: #58a6ff; border-bottom: 2px solid #30363d; padding-bottom: 10px; margin-bottom: 20px; }
+            h1 { color: #58a6ff; }
             .log-area { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 16px; font-family: monospace; font-size: 13px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; }
-            .nav { display: flex; gap: 10px; margin-bottom: 20px; }
-            .nav a { color: #58a6ff; text-decoration: none; padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; }
-            .nav a:hover { background: #30363d; }
+            .nav a { color: #58a6ff; text-decoration: none; }
             .btn { padding: 6px 14px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; }
             .btn-danger { background: #da3633; color: #fff; }
         </style>
@@ -566,10 +647,7 @@ if ($action === 'logs') {
     <div class="container">
         <div class="card">
             <h1>📋 Loglar</h1>
-            <div class="nav">
-                <a href="?action=dashboard">← Geri</a>
-                <a href="?action=clearlogs" class="btn btn-danger" onclick="return confirm('Logları temizle?')">🗑️ Temizle</a>
-            </div>
+            <p><a href="?action=dashboard">← Geri</a> | <a href="?action=clearlogs" class="btn btn-danger" onclick="return confirm('Logları temizle?')">🗑️ Temizle</a></p>
             <div class="log-area"><?= htmlspecialchars($logs) ?></div>
         </div>
     </div>
@@ -581,7 +659,7 @@ if ($action === 'logs') {
 
 // === CLEAR LOGS ===
 if ($action === 'clearlogs') {
-    file_put_contents('telegram_logs.txt', '');
+    file_put_contents($log_file, '');
     header('Location: ?action=logs');
     exit;
 }
@@ -616,20 +694,16 @@ if ($action === 'test') {
             body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
             .container { max-width: 600px; margin: 0 auto; }
             .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; }
-            h1 { color: #58a6ff; margin-bottom: 20px; }
+            h1 { color: #58a6ff; }
             .result { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 16px; font-family: monospace; font-size: 14px; white-space: pre-wrap; }
-            .nav { display: flex; gap: 10px; margin-bottom: 20px; }
-            .nav a { color: #58a6ff; text-decoration: none; padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; }
-            .nav a:hover { background: #30363d; }
+            .nav a { color: #58a6ff; text-decoration: none; }
         </style>
     </head>
     <body>
     <div class="container">
         <div class="card">
             <h1>🧪 Bot Test</h1>
-            <div class="nav">
-                <a href="?action=dashboard">← Geri</a>
-            </div>
+            <p><a href="?action=dashboard">← Geri</a></p>
             <div class="result"><?= htmlspecialchars($msg) ?></div>
         </div>
     </div>
@@ -639,59 +713,12 @@ if ($action === 'test') {
     exit;
 }
 
-// === WEBHOOK HANDLER (Bot mesajlarını alır) ===
-if ($action === 'webhook_handler') {
-    $input = file_get_contents('php://input');
-    $update = json_decode($input, true);
-    
-    if ($update && isset($update['message'])) {
-        $chat_id = $update['message']['chat']['id'];
-        $text = $update['message']['text'] ?? '';
-        $username = $update['message']['from']['username'] ?? 'bilinmeyen';
-        
-        // Log
-        $log = "[" . date('Y-m-d H:i:s') . "] $username ($chat_id): $text\n";
-        file_put_contents('telegram_logs.txt', $log, FILE_APPEND);
-        
-        // Basit komut işleme
-        if ($text === '/start') {
-            sendMessage($chat_id, "👋 Hoş geldin! Ben bir botum.\n\n📌 Komutlar:\n/start - Başlat\n/help - Yardım\n/about - Hakkında");
-        } elseif ($text === '/help') {
-            sendMessage($chat_id, "📖 Yardım menüsü.\n\n/start - Başlat\n/help - Yardım\n/about - Hakkında");
-        } elseif ($text === '/about') {
-            sendMessage($chat_id, "🤖 Bu bot, Telegram Bot Yönetim Paneli tarafından yönetiliyor.\n\n💻 @zanetmez");
-        } else {
-            sendMessage($chat_id, "❌ Bilinmeyen komut. /start yazın.");
-        }
-    }
-    http_response_code(200);
-    echo 'OK';
+// Ana webhook (GET ile test için)
+if (isset($_GET['webhook'])) {
+    echo "✅ Webhook endpoint çalışıyor!";
     exit;
 }
 
-// ==================== TELEGRAM BOT WEBHOOK (Ana) ====================
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['webhook'])) {
-    $input = file_get_contents('php://input');
-    $update = json_decode($input, true);
-    
-    if ($update && isset($update['message'])) {
-        $chat_id = $update['message']['chat']['id'];
-        $text = $update['message']['text'] ?? '';
-        $username = $update['message']['from']['username'] ?? 'bilinmeyen';
-        
-        file_put_contents('telegram_logs.txt', "[" . date('Y-m-d H:i:s') . "] $username ($chat_id): $text\n", FILE_APPEND);
-        
-        if ($text === '/start') {
-            sendMessage($chat_id, "👋 Hoş geldin! Bot aktif.\n\n@zanetmez");
-        } else {
-            sendMessage($chat_id, "📩 Mesajın alındı: $text");
-        }
-    }
-    http_response_code(200);
-    echo 'OK';
-    exit;
-}
-
-// === DASHBOARD (Varsayılan) ===
+// Varsayılan: Dashboard
 header('Location: ?action=dashboard');
 exit;
